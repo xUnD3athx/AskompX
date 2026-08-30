@@ -31,8 +31,8 @@ pos(x) = max(x, 0);
 neg(x) = min(x, 0);
 
 compress(l,r) = pos(l),pos(r),neg(l),neg(r):
-co.FFcompressor_N_chan(1 - (1 / ratio),postive_threshold,atk*0.001,rel*0.001,knee,stereo_link,0,_,2),
-co.FFcompressor_N_chan(1 - (1 / ratio),negative_threshold,atk*0.001,rel*0.001,knee,stereo_link,0,_,2):>
+co.FFcompressor_N_chan(1 - (1 / ratio),postive_threshold,atk*0.001,rel*0.001,knee,0,stereo_link,_,2),
+co.FFcompressor_N_chan(1 - (1 / ratio),negative_threshold,atk*0.001,rel*0.001,knee,0,stereo_link,_,2):>
 _,_; 
 
 postive_threshold = vslider("Positive Threshold",0,-36,0,0.1);

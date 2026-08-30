@@ -18,12 +18,14 @@ sed -i \
     -e '/pub fn metadata(/,/^	}$/d' \
     -e '/pub fn build_user_interface(/,/^	}$/d' \
     -e '/pub fn build_user_interface_static(/,/^	}$/d' \
-    -e '/pub fn get_param(/,/^	}$/d' \
-    -e '/pub fn set_param(/,/^	}$/d' \
     -e '/^impl FaustDsp/,$d' \
     "$FILE"
 
-sed -i '1i #![allow(dead_code, unused_variables, unused_mut, unused_assignments, unused_parens, non_snake_case)]\ntype FaustFloat = f64;\ntype F64 = f64;\n' "$FILE"
+# `get_param`/`set_param` are kept: they address the sliders by ParamIndex
+# (the declaration order from the .dsp), which is far more stable across
+# regenerations than the topologically ordered field names. ParamIndex itself
+# normally comes from the faust runtime crate, so define it here.
+sed -i '1i #![allow(dead_code, unused_variables, unused_mut, unused_assignments, unused_parens, non_snake_case)]\ntype FaustFloat = f64;\ntype F64 = f64;\npub struct ParamIndex(pub i32);\n' "$FILE"
 sed -i 's/^\t\(f[A-Za-z0-9]*\): /\tpub \1: /' "$FILE"
 
 echo "Regenerated $FILE"

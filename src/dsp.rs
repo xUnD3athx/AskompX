@@ -28,7 +28,18 @@
 //! `AskompDsp` wrapper) and converts between the host's `f32` buffers and the
 //! DSP's `f64` buffers.
 
-use crate::faust_dsp::mydsp;
+use crate::faust_dsp::{mydsp, ParamIndex};
+
+/// The Faust `ParamIndex` of every slider, in `dsp/askomp_dsp.dsp` declaration
+/// order. Addressing the sliders through `set_param` keeps the adapter immune
+/// to Faust renumbering the internal struct fields across regenerations.
+const ATTACK: ParamIndex = ParamIndex(0);
+const KNEE: ParamIndex = ParamIndex(1);
+const NEGATIVE_THRESHOLD: ParamIndex = ParamIndex(2);
+const POSITIVE_THRESHOLD: ParamIndex = ParamIndex(3);
+const RATIO: ParamIndex = ParamIndex(4);
+const RELEASE: ParamIndex = ParamIndex(5);
+const STEREO_LINK: ParamIndex = ParamIndex(6);
 
 #[derive(Debug, Clone, Copy)]
 pub struct CompressorSettings {
@@ -74,25 +85,15 @@ impl AskompDsp {
         Self { dsp }
     }
 
-    /// Updates the Faust sliders from the plugin's parameters, mirroring the
-    /// field mapping of the original C# `AskompDsp` wrapper:
-    ///
-    /// - `fVslider0` = Negative Threshold
-    /// - `fVslider1` = Positive Threshold
-    /// - `fHslider0` = Release
-    /// - `fHslider1` = Attack
-    /// - `fHslider2` = Ratio
-    /// - `fHslider4` = Knee
-    /// - `fHslider5` = Stereo Link
-    /// - `fHslider3` = Trim (not exposed, stays at its 0 dB default)
+    /// Updates the Faust sliders from the plugin's parameters.
     fn apply(dsp: &mut mydsp, settings: &CompressorSettings) {
-        dsp.fVslider0 = settings.negative_threshold_db as _;
-        dsp.fVslider1 = settings.positive_threshold_db as _;
-        dsp.fHslider0 = settings.release_ms as _;
-        dsp.fHslider1 = settings.attack_ms as _;
-        dsp.fHslider2 = settings.ratio as _;
-        dsp.fHslider4 = settings.knee_db as _;
-        dsp.fHslider5 = settings.stereo_link as _;
+        dsp.set_param(NEGATIVE_THRESHOLD, settings.negative_threshold_db);
+        dsp.set_param(POSITIVE_THRESHOLD, settings.positive_threshold_db);
+        dsp.set_param(ATTACK, settings.attack_ms);
+        dsp.set_param(RELEASE, settings.release_ms);
+        dsp.set_param(RATIO, settings.ratio);
+        dsp.set_param(KNEE, settings.knee_db);
+        dsp.set_param(STEREO_LINK, settings.stereo_link);
     }
 
     pub fn update_settings(&mut self, settings: &CompressorSettings) {
@@ -142,6 +143,8 @@ mod tests {
             attack_ms: 0.0,
             release_ms: 100.0,
             ratio: 2.0,
+            knee_db: 3.0,
+            stereo_link: 0.0,
         }
     }
 
@@ -205,12 +208,84 @@ mod tests {
     }
 
     #[test]
+    fn knee_matches_the_gain_computer_formula() {
+        // `gain_computer` from Faust's compressors.lib, 1.5 dB over the
+        // -12 dB threshold at 2:1:
+        //
+        //   knee 0:  reduction = strength * (level - thresh)
+        //   knee 24: reduction = strength * (level - thresh + knee/2)^2 / (2 * knee)
+        //
+        // Pinning both values also catches the slider fields being swapped.
+        let one_and_a_half_over = 10f64.powf(-10.5 / 20.0);
+
+        let hard = CompressorSettings {
+            knee_db: 0.0,
+            ..default_settings()
+        };
+        let soft = CompressorSettings {
+            knee_db: 24.0,
+            ..default_settings()
+        };
+
+        let hard_out = linear_to_db(steady_state_level(&hard, one_and_a_half_over).abs());
+        let soft_out = linear_to_db(steady_state_level(&soft, one_and_a_half_over).abs());
+
+        assert!(
+            (hard_out - -11.25).abs() < 0.05,
+            "hard knee output {hard_out} dB, expected -11.25 dB"
+        );
+        assert!(
+            (soft_out - -12.398).abs() < 0.1,
+            "24 dB knee output {soft_out} dB, expected -12.398 dB"
+        );
+    }
+
+    #[test]
+    fn stereo_link_couples_the_channel_envelopes() {
+        // A loud left channel and a quiet right channel: with the channels
+        // linked the right channel must be compressed down by the left
+        // channel's envelope, with the channels unlinked it passes freely.
+        let linked = CompressorSettings {
+            stereo_link: 1.0,
+            ..default_settings()
+        };
+        let unlinked = CompressorSettings {
+            stereo_link: 0.0,
+            ..default_settings()
+        };
+
+        let mut linked_dsp = AskompDsp::new(&linked, SAMPLE_RATE);
+        let mut unlinked_dsp = AskompDsp::new(&unlinked, SAMPLE_RATE);
+
+        // One stereo sample: a loud left and a quiet right channel.
+        let input = vec![0.5f64, 0.001];
+        let mut output = vec![0.0f64; 2];
+        let mut linked_right = 0.0;
+        let mut unlinked_right = 0.0;
+        for _ in 0..48000 {
+            linked_dsp.compute(1, &input, &mut output);
+            linked_right = output[1];
+
+            unlinked_dsp.compute(1, &input, &mut output);
+            unlinked_right = output[1];
+        }
+
+        // The left channel sits 6 dB over the threshold at 2:1, so the linked
+        // right channel inherits a 3 dB (70.8%) reduction.
+        assert!(
+            linked_right < unlinked_right * 0.75,
+            "linked right channel ({linked_right}) should be dragged down by \
+             the left channel's envelope, unlinked ({unlinked_right}) should not"
+        );
+    }
+
+    #[test]
     fn processes_blocks_consistently() {
         let settings = default_settings();
         let mut dsp = AskompDsp::new(&settings, SAMPLE_RATE);
 
         let block_length = 256;
-        let mut input = vec![0.5f64; block_length * 2];
+        let input = vec![0.5f64; block_length * 2];
         let mut output = vec![0.0f64; block_length * 2];
         for _ in 0..100 {
             dsp.compute(block_length, &input, &mut output);
@@ -218,7 +293,7 @@ mod tests {
 
         // The same total number of samples processed one sample at a time.
         let mut per_sample_dsp = AskompDsp::new(&settings, SAMPLE_RATE);
-        let mut single_input = vec![0.5f64; 2];
+        let single_input = vec![0.5f64; 2];
         let mut single_output = vec![0.0f64; 2];
         let mut per_sample = 0.0;
         for _ in 0..100 * block_length {
