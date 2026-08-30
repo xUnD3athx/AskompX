@@ -68,6 +68,8 @@ struct Data {
     knee: f32,
     /// The current stereo link amount in percent, for the knob's value label.
     stereo_link: f32,
+    /// The current sidechain high-pass cutoff, for the knob's value label.
+    hp_hz: f32,
     /// Whether the positive threshold strip is hovered, for the fading value
     /// label.
     pos_th_hover: bool,
@@ -102,6 +104,7 @@ impl Data {
         let initial_ratio = params.ratio.value();
         let initial_knee = params.knee.value();
         let initial_stereo_link = params.stereo_link.value();
+        let initial_hp = params.sidechain_hp.value();
 
         Data {
             params,
@@ -115,6 +118,7 @@ impl Data {
             ratio: initial_ratio,
             knee: initial_knee,
             stereo_link: initial_stereo_link,
+            hp_hz: initial_hp,
             pos_th_hover: false,
             neg_th_hover: false,
             positive_hovered,
@@ -138,6 +142,7 @@ impl Data {
         self.ratio = self.params.ratio.value();
         self.knee = self.params.knee.value();
         self.stereo_link = self.params.stereo_link.value();
+        self.hp_hz = self.params.sidechain_hp.value();
 
         self.pos_th_hover = self.positive_hovered.load(Ordering::Relaxed);
         self.neg_th_hover = self.negative_hovered.load(Ordering::Relaxed);
@@ -729,6 +734,7 @@ enum KnobKind {
     Ratio,
     Knee,
     StereoLink,
+    SidechainHP,
 }
 
 /// A rotary knob, ported from the original's ellipse-based knobs. Drag
@@ -792,6 +798,13 @@ impl KnobView {
                 0.0,
                 100.0,
                 0.5,
+                3.0,
+            ),
+            KnobKind::SidechainHP => (
+                params.sidechain_hp.as_ptr(),
+                20.0,
+                500.0,
+                2.0,
                 3.0,
             ),
         };
@@ -1219,7 +1232,7 @@ pub(crate) fn create(
                 .pointer_events(false);
 
             PillMeter::new(cx, shared.clone(), MeterKind::OutputPeakRight, false)
-                .left(Pixels(335.0))
+                .left(Pixels(364.0))
                 .top(Pixels(40.0))
                 .width(Pixels(135.0))
                 .height(Pixels(20.0));
@@ -1329,14 +1342,14 @@ pub(crate) fn create(
                     .right(Stretch(1.0))
                     .pointer_events(false);
             })
-            .left(Pixels(90.0))
+            .left(Pixels(55.0))
             .top(Pixels(322.0))
             .size(Pixels(50.0));
 
             Label::new(cx, Data::attack_ms.map(|v| format!("{v:.0}ms")))
                 .font_size(12.0)
                 .color(Color::rgb(51, 51, 51))
-                .left(Pixels(65.0))
+                .left(Pixels(52.0))
                 .top(Pixels(374.0))
                 .width(Pixels(50.0))
                 .height(Pixels(16.0))
@@ -1355,14 +1368,41 @@ pub(crate) fn create(
                     .right(Stretch(1.0))
                     .pointer_events(false);
             })
-            .left(Pixels(150.0))
+            .left(Pixels(107.0))
             .top(Pixels(322.0))
             .size(Pixels(50.0));
 
             Label::new(cx, Data::knee.map(|v| format!("{v:.1}dB")))
                 .font_size(12.0)
                 .color(Color::rgb(51, 51, 51))
-                .left(Pixels(125.0))
+                .left(Pixels(104.0))
+                .top(Pixels(374.0))
+                .width(Pixels(50.0))
+                .height(Pixels(16.0))
+                .text_align(TextAlign::Center)
+                .pointer_events(false);
+
+            // The sidechain high-pass cutoff.
+            ZStack::new(cx, |cx| {
+                KnobView::new(cx, &params, KnobKind::SidechainHP).size(Pixels(44.0));
+
+                Label::new(cx, "HP")
+                    .font_size(10.0)
+                    .color(Color::rgb(51, 51, 51))
+                    .top(Stretch(1.0))
+                    .bottom(Stretch(1.0))
+                    .left(Stretch(1.0))
+                    .right(Stretch(1.0))
+                    .pointer_events(false);
+            })
+            .left(Pixels(159.0))
+            .top(Pixels(324.0))
+            .size(Pixels(44.0));
+
+            Label::new(cx, Data::hp_hz.map(|v| format!("{v:.0}Hz")))
+                .font_size(12.0)
+                .color(Color::rgb(51, 51, 51))
+                .left(Pixels(156.0))
                 .top(Pixels(374.0))
                 .width(Pixels(50.0))
                 .height(Pixels(16.0))
@@ -1397,14 +1437,14 @@ pub(crate) fn create(
                     .right(Stretch(1.0))
                     .pointer_events(false);
             })
-            .left(Pixels(300.0))
+            .left(Pixels(315.0))
             .top(Pixels(322.0))
             .size(Pixels(50.0));
 
             Label::new(cx, Data::stereo_link.map(|v| format!("{v:.0}%")))
                 .font_size(12.0)
                 .color(Color::rgb(51, 51, 51))
-                .left(Pixels(275.0))
+                .left(Pixels(312.0))
                 .top(Pixels(374.0))
                 .width(Pixels(50.0))
                 .height(Pixels(16.0))
@@ -1423,7 +1463,7 @@ pub(crate) fn create(
                     .right(Stretch(1.0))
                     .pointer_events(false);
             })
-            .left(Pixels(360.0))
+            .left(Pixels(367.0))
             .top(Pixels(322.0))
             .size(Pixels(50.0));
 

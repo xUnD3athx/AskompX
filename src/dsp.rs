@@ -39,7 +39,8 @@ const NEGATIVE_THRESHOLD: ParamIndex = ParamIndex(2);
 const POSITIVE_THRESHOLD: ParamIndex = ParamIndex(3);
 const RATIO: ParamIndex = ParamIndex(4);
 const RELEASE: ParamIndex = ParamIndex(5);
-const STEREO_LINK: ParamIndex = ParamIndex(6);
+const SIDECHAIN_HP: ParamIndex = ParamIndex(6);
+const STEREO_LINK: ParamIndex = ParamIndex(7);
 
 #[derive(Debug, Clone, Copy)]
 pub struct CompressorSettings {
@@ -55,6 +56,9 @@ pub struct CompressorSettings {
     /// The stereo link amount: `0` compresses the channels independently,
     /// `1` fully links their envelopes.
     pub stereo_link: f64,
+    /// The sidechain high-pass cutoff in Hz. The compressor detects on the
+    /// high-passed signal while gain reducing the full-range signal.
+    pub sidechain_hp_hz: f64,
 }
 
 impl Default for CompressorSettings {
@@ -67,6 +71,7 @@ impl Default for CompressorSettings {
             ratio: 2.0,
             knee_db: 3.0,
             stereo_link: 0.0,
+            sidechain_hp_hz: 20.0,
         }
     }
 }
@@ -93,6 +98,7 @@ impl AskompDsp {
         dsp.set_param(RELEASE, settings.release_ms);
         dsp.set_param(RATIO, settings.ratio);
         dsp.set_param(KNEE, settings.knee_db);
+        dsp.set_param(SIDECHAIN_HP, settings.sidechain_hp_hz);
         dsp.set_param(STEREO_LINK, settings.stereo_link);
     }
 

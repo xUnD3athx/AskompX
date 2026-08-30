@@ -69,6 +69,11 @@ pub struct AskompParams {
     #[id = "stLink"]
     pub stereo_link: FloatParam,
 
+    /// The sidechain high-pass cutoff. The compressor detects on the
+    /// high-passed signal while gain reducing the full-range signal.
+    #[id = "schp"]
+    pub sidechain_hp: FloatParam,
+
     /// Whether the two thresholds should move together.
     #[id = "link"]
     pub link: BoolParam,
@@ -121,6 +126,18 @@ impl Default for AskompParams {
                 FloatRange::Linear { min: 0.0, max: 100.0 },
             )
             .with_unit(" %")
+            .with_step_size(1.0),
+
+            sidechain_hp: FloatParam::new(
+                "Sidechain HP",
+                20.0,
+                FloatRange::Skewed {
+                    min: 20.0,
+                    max: 500.0,
+                    factor: FloatRange::skew_factor(-1.5),
+                },
+            )
+            .with_unit(" Hz")
             .with_step_size(1.0),
 
             link: BoolParam::new("Link", true),
@@ -283,6 +300,7 @@ impl Plugin for Askomp {
             ratio: self.params.ratio.value() as f64,
             knee_db: self.params.knee.value() as f64,
             stereo_link: (self.params.stereo_link.value() / 100.0) as f64,
+            sidechain_hp_hz: self.params.sidechain_hp.value() as f64,
         };
 
         let dsp = self
