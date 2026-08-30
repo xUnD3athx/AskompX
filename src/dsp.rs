@@ -151,26 +151,44 @@ mod tests {
             ratio: 2.0,
             knee_db: 3.0,
             stereo_link: 0.0,
+            sidechain_hp_hz: 20.0,
         }
     }
 
-    /// Feeds a constant stereo level through the compressor and returns the
-    /// steady state output level of the left channel.
-    fn steady_state_level(settings: &CompressorSettings, input_level: f64) -> f64 {
+    /// Feeds a 1 kHz sine at the given left/right levels through the compressor
+    /// and returns the steady state output peak of each channel. A sine is used
+    /// because the sidechain high-pass blocks DC, which constant test levels
+    /// would consist of.
+    fn steady_state_peaks(
+        settings: &CompressorSettings,
+        left_level: f64,
+        right_level: f64,
+    ) -> (f64, f64) {
         let mut dsp = AskompDsp::new(settings, SAMPLE_RATE);
 
         let mut input = vec![0.0f64; 2];
         let mut output = vec![0.0f64; 2];
 
-        let mut last = 0.0;
-        for _ in 0..48000 {
-            input[0] = input_level;
-            input[1] = input_level;
+        let mut peak_left = 0.0f64;
+        let mut peak_right = 0.0f64;
+        for n in 0..48000 {
+            let phase = 2.0 * std::f64::consts::PI * 1000.0 * (n as f64) / SAMPLE_RATE;
+            input[0] = left_level * phase.sin();
+            input[1] = right_level * phase.sin();
             dsp.compute(1, &input, &mut output);
-            last = output[0];
+
+            if n >= SAMPLE_RATE as usize - 1000 {
+                peak_left = peak_left.max(output[0].abs());
+                peak_right = peak_right.max(output[1].abs());
+            }
         }
 
-        last
+        (peak_left, peak_right)
+    }
+
+    /// Same, returning only the left channel peak.
+    fn steady_state_level(settings: &CompressorSettings, input_level: f64) -> f64 {
+        steady_state_peaks(settings, input_level, input_level).0
     }
 
     #[test]
@@ -203,13 +221,41 @@ mod tests {
             ..default_settings()
         };
 
-        let positive_out = steady_state_level(&settings, 0.5);
-        let negative_out = steady_state_level(&settings, -0.5);
+        // A fully rectified sine only excites the positive half-wave's
+        // detector; an inverted one only excites the negative half's.
+        let rectified = |n: usize, level: f64| {
+            let phase = 2.0 * std::f64::consts::PI * 1000.0 * (n as f64) / SAMPLE_RATE;
+            level * phase.sin().abs()
+        };
+
+        let mut positive_dsp = AskompDsp::new(&settings, SAMPLE_RATE);
+        let mut negative_dsp = AskompDsp::new(&settings, SAMPLE_RATE);
+
+        let mut input = vec![0.0f64; 2];
+        let mut output = vec![0.0f64; 2];
+        let mut positive_peak = 0.0f64;
+        let mut negative_peak = 0.0f64;
+        for n in 0..48000 {
+            input[0] = rectified(n, 0.5);
+            input[1] = rectified(n, 0.5);
+
+            positive_dsp.compute(1, &input, &mut output);
+            positive_peak = positive_peak.max(output[0].abs());
+
+            input[0] = -input[0];
+            input[1] = -input[1];
+
+            negative_dsp.compute(1, &input, &mut output);
+            negative_peak = negative_peak.max(output[0].abs());
+        }
+
+        let positive_out = linear_to_db(positive_peak);
+        let negative_out = linear_to_db(negative_peak);
 
         assert!(
-            linear_to_db(positive_out.abs()) > linear_to_db(negative_out.abs()) + 1.0,
-            "positive side ({positive_out}) should be less compressed than the \
-             negative side ({negative_out})"
+            positive_out > negative_out + 1.0,
+            "positive side ({positive_out} dB) should be less compressed than the \
+             negative side ({negative_out} dB)"
         );
     }
 
@@ -263,17 +309,25 @@ mod tests {
         let mut linked_dsp = AskompDsp::new(&linked, SAMPLE_RATE);
         let mut unlinked_dsp = AskompDsp::new(&unlinked, SAMPLE_RATE);
 
-        // One stereo sample: a loud left and a quiet right channel.
-        let input = vec![0.5f64, 0.001];
+        // A loud left channel and a quiet right channel, as 1 kHz sines.
+        let mut input = vec![0.0f64; 2];
         let mut output = vec![0.0f64; 2];
-        let mut linked_right = 0.0;
-        let mut unlinked_right = 0.0;
-        for _ in 0..48000 {
+        let mut linked_right = 0.0f64;
+        let mut unlinked_right = 0.0f64;
+        for n in 0..48000 {
+            let phase = 2.0 * std::f64::consts::PI * 1000.0 * (n as f64) / SAMPLE_RATE;
+            input[0] = 0.5 * phase.sin();
+            input[1] = 0.001 * phase.sin();
+
             linked_dsp.compute(1, &input, &mut output);
-            linked_right = output[1];
+            if n >= SAMPLE_RATE as usize - 1000 {
+                linked_right = linked_right.max(output[1].abs());
+            }
 
             unlinked_dsp.compute(1, &input, &mut output);
-            unlinked_right = output[1];
+            if n >= SAMPLE_RATE as usize - 1000 {
+                unlinked_right = unlinked_right.max(output[1].abs());
+            }
         }
 
         // The left channel sits 6 dB over the threshold at 2:1, so the linked
@@ -291,26 +345,44 @@ mod tests {
         let mut dsp = AskompDsp::new(&settings, SAMPLE_RATE);
 
         let block_length = 256;
-        let input = vec![0.5f64; block_length * 2];
+        let mut input = vec![0.0f64; block_length * 2];
         let mut output = vec![0.0f64; block_length * 2];
-        for _ in 0..100 {
+        for block in 0..100 {
+            for i in 0..block_length {
+                let n = block * block_length + i;
+                let phase = 2.0 * std::f64::consts::PI * 1000.0 * (n as f64) / SAMPLE_RATE;
+                input[i] = 0.5 * phase.sin();
+                input[block_length + i] = 0.5 * phase.sin();
+            }
             dsp.compute(block_length, &input, &mut output);
         }
 
         // The same total number of samples processed one sample at a time.
         let mut per_sample_dsp = AskompDsp::new(&settings, SAMPLE_RATE);
-        let single_input = vec![0.5f64; 2];
+        let mut single_input = vec![0.0f64; 2];
         let mut single_output = vec![0.0f64; 2];
-        let mut per_sample = 0.0;
-        for _ in 0..100 * block_length {
+        let mut per_sample_peak = 0.0f64;
+        for i in 0..100 * block_length {
+            let phase = 2.0 * std::f64::consts::PI * 1000.0 * (i as f64) / SAMPLE_RATE;
+            single_input[0] = 0.5 * phase.sin();
+            single_input[1] = 0.5 * phase.sin();
             per_sample_dsp.compute(1, &single_input, &mut single_output);
-            per_sample = single_output[0];
+
+            if i >= 99 * block_length {
+                per_sample_peak = per_sample_peak.max(single_output[0].abs());
+            }
         }
 
+        // The block path's last compute wrote exactly the last block, so its
+        // left channel output covers the same samples.
+        let block_peak = output[..block_length]
+            .iter()
+            .fold(0.0f64, |acc: f64, v| acc.max(v.abs()));
+
         assert!(
-            (output[block_length - 1] - per_sample).abs() < 1e-12,
-            "block processing ({}) should match sample processing ({per_sample})",
-            output[block_length - 1]
+            (block_peak - per_sample_peak).abs() < 1e-12,
+            "block processing ({block_peak}) should match sample processing \
+             ({per_sample_peak})"
         );
     }
 }

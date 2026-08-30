@@ -48,8 +48,8 @@ compress(l,r) = outl,outr with {
   gpr = take(2,2,gpos);
   gnl = take(2,1,gneg);
   gnr = take(2,2,gneg);
-  outl = l * (gpl + gnl);
-  outr = r * (gpr + gnr);
+  outl = pos(l) * gpl + neg(l) * gnl;
+  outr = pos(r) * gpr + neg(r) * gnr;
 };
 
 gain2(thresh) = co.peak_compression_gain_N_chan_db(1 - (1 / ratio),thresh,atk*0.001,rel*0.001,knee,0,stereo_link,2) : par(i,2,ba.db2linear);

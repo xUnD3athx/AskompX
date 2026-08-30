@@ -234,8 +234,8 @@ impl mydsp {
 			let mut fTemp27: F64 = fTemp25 - fSlow22;
 			let mut fTemp28: F64 = fSlow20 * F64::max(0.0, (if (iTemp26 == 0) as i32 != 0 {0.0} else {(if (iTemp26 == 1) as i32 != 0 {fSlow19 * mydsp_faustpower2_f(fSlow1 + fTemp27)} else {fTemp27})}));
 			let mut fTemp29: F64 = F64::min(-fTemp22, -fTemp28);
-			*output0 = (fSlow25 * fTemp0 * (F64::powf(1e+01, 0.05 * (fSlow21 * (fTemp22 + fTemp29) - fTemp22)) + F64::powf(1e+01, 0.05 * (fSlow21 * (fTemp7 + fTemp16) - fTemp7)))) as FaustFloat;
-			*output1 = (fSlow25 * fTemp8 * (F64::powf(1e+01, 0.05 * (fSlow21 * (fTemp28 + fTemp29) - fTemp28)) + F64::powf(1e+01, 0.05 * (fSlow21 * (fTemp15 + fTemp16) - fTemp15)))) as FaustFloat;
+			*output0 = (fSlow25 * (F64::max(fTemp0, 0.0) * F64::powf(1e+01, 0.05 * (fSlow21 * (fTemp22 + fTemp29) - fTemp22)) + F64::min(fTemp0, 0.0) * F64::powf(1e+01, 0.05 * (fSlow21 * (fTemp7 + fTemp16) - fTemp7)))) as FaustFloat;
+			*output1 = (fSlow25 * (F64::max(fTemp8, 0.0) * F64::powf(1e+01, 0.05 * (fSlow21 * (fTemp28 + fTemp29) - fTemp28)) + F64::min(fTemp8, 0.0) * F64::powf(1e+01, 0.05 * (fSlow21 * (fTemp15 + fTemp16) - fTemp15)))) as FaustFloat;
 			self.fRec1[2] = self.fRec1[1];
 			self.fRec1[1] = self.fRec1[0];
 			self.fRec0[1] = self.fRec0[0];
