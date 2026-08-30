@@ -41,6 +41,9 @@ pub struct CompressorSettings {
     pub ratio: f64,
     /// The soft knee width in decibels.
     pub knee_db: f64,
+    /// The stereo link amount: `0` compresses the channels independently,
+    /// `1` fully links their envelopes.
+    pub stereo_link: f64,
 }
 
 impl Default for CompressorSettings {
@@ -52,6 +55,7 @@ impl Default for CompressorSettings {
             release_ms: 50.0,
             ratio: 2.0,
             knee_db: 3.0,
+            stereo_link: 0.0,
         }
     }
 }
@@ -79,6 +83,7 @@ impl AskompDsp {
     /// - `fHslider1` = Attack
     /// - `fHslider2` = Ratio
     /// - `fHslider4` = Knee
+    /// - `fHslider5` = Stereo Link
     /// - `fHslider3` = Trim (not exposed, stays at its 0 dB default)
     fn apply(dsp: &mut mydsp, settings: &CompressorSettings) {
         dsp.fVslider0 = settings.negative_threshold_db as _;
@@ -87,6 +92,7 @@ impl AskompDsp {
         dsp.fHslider1 = settings.attack_ms as _;
         dsp.fHslider2 = settings.ratio as _;
         dsp.fHslider4 = settings.knee_db as _;
+        dsp.fHslider5 = settings.stereo_link as _;
     }
 
     pub fn update_settings(&mut self, settings: &CompressorSettings) {

@@ -66,6 +66,8 @@ struct Data {
     ratio: f32,
     /// The current knee width, for the knob's value label.
     knee: f32,
+    /// The current stereo link amount in percent, for the knob's value label.
+    stereo_link: f32,
     /// Whether the positive threshold strip is hovered, for the fading value
     /// label.
     pos_th_hover: bool,
@@ -99,6 +101,7 @@ impl Data {
         let initial_release = params.release.value();
         let initial_ratio = params.ratio.value();
         let initial_knee = params.knee.value();
+        let initial_stereo_link = params.stereo_link.value();
 
         Data {
             params,
@@ -111,6 +114,7 @@ impl Data {
             release_ms: initial_release,
             ratio: initial_ratio,
             knee: initial_knee,
+            stereo_link: initial_stereo_link,
             pos_th_hover: false,
             neg_th_hover: false,
             positive_hovered,
@@ -133,6 +137,7 @@ impl Data {
         self.release_ms = self.params.release.value();
         self.ratio = self.params.ratio.value();
         self.knee = self.params.knee.value();
+        self.stereo_link = self.params.stereo_link.value();
 
         self.pos_th_hover = self.positive_hovered.load(Ordering::Relaxed);
         self.neg_th_hover = self.negative_hovered.load(Ordering::Relaxed);
@@ -723,6 +728,7 @@ enum KnobKind {
     Release,
     Ratio,
     Knee,
+    StereoLink,
 }
 
 /// A rotary knob, ported from the original's ellipse-based knobs. Drag
@@ -779,6 +785,13 @@ impl KnobView {
                 0.0,
                 24.0,
                 0.1,
+                3.0,
+            ),
+            KnobKind::StereoLink => (
+                params.stereo_link.as_ptr(),
+                0.0,
+                100.0,
+                0.5,
                 3.0,
             ),
         };
@@ -1169,9 +1182,9 @@ pub(crate) fn create(
                 .width(Pixels(50.0))
                 .height(Pixels(20.0));
 
-            // The knob row: small attack and knee knobs, the large ratio knob
-            // in the middle, and a small release knob, all vertically centered
-            // at y = 345 with their value labels below the small knobs.
+            // The knob row: small attack, knee, stereo link and release knobs
+            // flanking the large ratio knob, all vertically centered at
+            // y = 345 with their value labels below the small knobs.
             ZStack::new(cx, |cx| {
                 KnobView::new(cx, &params, KnobKind::Attack).size(Pixels(50.0));
 
@@ -1184,14 +1197,14 @@ pub(crate) fn create(
                     .right(Stretch(1.0))
                     .pointer_events(false);
             })
-            .left(Pixels(95.0))
+            .left(Pixels(90.0))
             .top(Pixels(320.0))
             .size(Pixels(50.0));
 
             Label::new(cx, Data::attack_ms.map(|v| format!("{v:.0}ms")))
                 .font_size(12.0)
                 .color(Color::rgb(51, 51, 51))
-                .left(Pixels(70.0))
+                .left(Pixels(65.0))
                 .top(Pixels(372.0))
                 .width(Pixels(50.0))
                 .height(Pixels(16.0))
@@ -1210,14 +1223,14 @@ pub(crate) fn create(
                     .right(Stretch(1.0))
                     .pointer_events(false);
             })
-            .left(Pixels(152.0))
+            .left(Pixels(150.0))
             .top(Pixels(320.0))
             .size(Pixels(50.0));
 
             Label::new(cx, Data::knee.map(|v| format!("{v:.1}dB")))
                 .font_size(12.0)
                 .color(Color::rgb(51, 51, 51))
-                .left(Pixels(127.0))
+                .left(Pixels(125.0))
                 .top(Pixels(372.0))
                 .width(Pixels(50.0))
                 .height(Pixels(16.0))
@@ -1241,6 +1254,32 @@ pub(crate) fn create(
             .size(Pixels(80.0));
 
             ZStack::new(cx, |cx| {
+                KnobView::new(cx, &params, KnobKind::StereoLink).size(Pixels(50.0));
+
+                Label::new(cx, "S")
+                    .font_size(12.0)
+                    .color(Color::rgb(51, 51, 51))
+                    .top(Stretch(1.0))
+                    .bottom(Stretch(1.0))
+                    .left(Stretch(1.0))
+                    .right(Stretch(1.0))
+                    .pointer_events(false);
+            })
+            .left(Pixels(300.0))
+            .top(Pixels(320.0))
+            .size(Pixels(50.0));
+
+            Label::new(cx, Data::stereo_link.map(|v| format!("{v:.0}%")))
+                .font_size(12.0)
+                .color(Color::rgb(51, 51, 51))
+                .left(Pixels(275.0))
+                .top(Pixels(372.0))
+                .width(Pixels(50.0))
+                .height(Pixels(16.0))
+                .text_align(TextAlign::Center)
+                .pointer_events(false);
+
+            ZStack::new(cx, |cx| {
                 KnobView::new(cx, &params, KnobKind::Release).size(Pixels(50.0));
 
                 Label::new(cx, "R")
@@ -1252,14 +1291,14 @@ pub(crate) fn create(
                     .right(Stretch(1.0))
                     .pointer_events(false);
             })
-            .left(Pixels(315.0))
+            .left(Pixels(360.0))
             .top(Pixels(320.0))
             .size(Pixels(50.0));
 
             Label::new(cx, Data::release_ms.map(|v| format!("{v:.0}ms")))
                 .font_size(12.0)
                 .color(Color::rgb(51, 51, 51))
-                .left(Pixels(290.0))
+                .left(Pixels(335.0))
                 .top(Pixels(372.0))
                 .width(Pixels(50.0))
                 .height(Pixels(16.0))

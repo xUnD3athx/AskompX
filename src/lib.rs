@@ -64,6 +64,11 @@ pub struct AskompParams {
     #[id = "knee"]
     pub knee: FloatParam,
 
+    /// The stereo link amount. `0%` compresses the channels independently,
+    /// `100%` fully links their envelopes.
+    #[id = "stLink"]
+    pub stereo_link: FloatParam,
+
     /// Whether the two thresholds should move together.
     #[id = "link"]
     pub link: BoolParam,
@@ -109,6 +114,14 @@ impl Default for AskompParams {
             knee: FloatParam::new("Knee", 3.0, FloatRange::Linear { min: 0.0, max: 24.0 })
                 .with_unit(" dB")
                 .with_step_size(0.1),
+
+            stereo_link: FloatParam::new(
+                "Stereo Link",
+                0.0,
+                FloatRange::Linear { min: 0.0, max: 100.0 },
+            )
+            .with_unit(" %")
+            .with_step_size(1.0),
 
             link: BoolParam::new("Link", true),
         }
@@ -269,6 +282,7 @@ impl Plugin for Askomp {
             release_ms: self.params.release.value() as f64,
             ratio: self.params.ratio.value() as f64,
             knee_db: self.params.knee.value() as f64,
+            stereo_link: (self.params.stereo_link.value() / 100.0) as f64,
         };
 
         let dsp = self
