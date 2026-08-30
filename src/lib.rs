@@ -60,6 +60,10 @@ pub struct AskompParams {
     #[id = "ratio"]
     pub ratio: FloatParam,
 
+    /// The soft knee width in decibels.
+    #[id = "knee"]
+    pub knee: FloatParam,
+
     /// Whether the two thresholds should move together.
     #[id = "link"]
     pub link: BoolParam,
@@ -101,6 +105,10 @@ impl Default for AskompParams {
             ratio: FloatParam::new("Ratio", 2.0, FloatRange::Linear { min: 1.0, max: 20.0 })
                 .with_unit(" : 1")
                 .with_step_size(1.0),
+
+            knee: FloatParam::new("Knee", 3.0, FloatRange::Linear { min: 0.0, max: 24.0 })
+                .with_unit(" dB")
+                .with_step_size(0.1),
 
             link: BoolParam::new("Link", true),
         }
@@ -260,6 +268,7 @@ impl Plugin for Askomp {
             attack_ms: self.params.attack.value() as f64,
             release_ms: self.params.release.value() as f64,
             ratio: self.params.ratio.value() as f64,
+            knee_db: self.params.knee.value() as f64,
         };
 
         let dsp = self

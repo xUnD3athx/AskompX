@@ -39,6 +39,8 @@ pub struct CompressorSettings {
     /// Release time in milliseconds.
     pub release_ms: f64,
     pub ratio: f64,
+    /// The soft knee width in decibels.
+    pub knee_db: f64,
 }
 
 impl Default for CompressorSettings {
@@ -49,6 +51,7 @@ impl Default for CompressorSettings {
             attack_ms: 10.0,
             release_ms: 50.0,
             ratio: 2.0,
+            knee_db: 3.0,
         }
     }
 }
@@ -75,6 +78,7 @@ impl AskompDsp {
     /// - `fHslider0` = Release
     /// - `fHslider1` = Attack
     /// - `fHslider2` = Ratio
+    /// - `fHslider4` = Knee
     /// - `fHslider3` = Trim (not exposed, stays at its 0 dB default)
     fn apply(dsp: &mut mydsp, settings: &CompressorSettings) {
         dsp.fVslider0 = settings.negative_threshold_db as _;
@@ -82,6 +86,7 @@ impl AskompDsp {
         dsp.fHslider0 = settings.release_ms as _;
         dsp.fHslider1 = settings.attack_ms as _;
         dsp.fHslider2 = settings.ratio as _;
+        dsp.fHslider4 = settings.knee_db as _;
     }
 
     pub fn update_settings(&mut self, settings: &CompressorSettings) {
