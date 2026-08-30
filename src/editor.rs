@@ -1037,6 +1037,121 @@ impl View for LinkButton {
     }
 }
 
+/// The waveform speed slider from the original's settings panel: 8 ticks that
+/// set how many process blocks pass before the waveform display scrolls by one
+/// column. Writes straight to the shared state and reads it back while
+/// drawing, so it needs no model of its own.
+struct WaveSpeedSlider {
+    shared: Arc<AskompShared>,
+    dragging: bool,
+}
+
+/// The number of discrete ticks on the speed slider.
+const SPEED_TICKS: usize = 8;
+
+impl WaveSpeedSlider {
+    pub fn new(cx: &mut Context, shared: Arc<AskompShared>) -> Handle<'_, Self> {
+        Self {
+            shared,
+            dragging: false,
+        }
+        .build(cx, |_| {})
+    }
+
+    /// The current tick, derived from the shared scroll step exactly like the
+    /// original's `_step = 9 - value`.
+    fn speed(&self) -> usize {
+        9usize
+            .saturating_sub(self.shared.wave_step.load(Ordering::Relaxed))
+            .min(SPEED_TICKS - 1)
+    }
+
+    fn set_speed(&self, speed: usize) {
+        let speed = speed.min(SPEED_TICKS - 1);
+        self.shared
+            .wave_step
+            .store(9 - speed, Ordering::Relaxed);
+    }
+}
+
+impl View for WaveSpeedSlider {
+    fn element(&self) -> Option<&'static str> {
+        Some("wave-speed-slider")
+    }
+
+    fn event(&mut self, cx: &mut EventContext, event: &mut Event) {
+        event.map(|window_event, meta| match window_event {
+            WindowEvent::MouseDown(MouseButton::Left) | WindowEvent::MouseMove(..) => {
+                let is_down = matches!(window_event, WindowEvent::MouseDown(MouseButton::Left));
+                if !self.dragging && !is_down {
+                    return;
+                }
+
+                if is_down {
+                    self.dragging = true;
+                    cx.capture();
+                }
+
+                let bounds = cx.bounds();
+                let speed = (((cx.mouse().cursorx - bounds.x) / bounds.w * (SPEED_TICKS - 1) as f32)
+                    .round() as usize)
+                    .clamp(0, SPEED_TICKS - 1);
+                self.set_speed(speed);
+
+                meta.consume();
+            }
+            WindowEvent::MouseUp(MouseButton::Left) => {
+                if self.dragging {
+                    self.dragging = false;
+                    cx.release();
+
+                    meta.consume();
+                }
+            }
+            _ => {}
+        });
+    }
+
+    fn draw(&self, cx: &mut DrawContext, canvas: &mut Canvas) {
+        let bounds = cx.bounds();
+        if bounds.w == 0.0 || bounds.h == 0.0 {
+            return;
+        }
+
+        // The thin rounded track, like the original's `Height="5"` border.
+        let track_y = bounds.y + bounds.h / 2.0 - 2.5;
+        let mut track = vg::Path::new();
+        track.rounded_rect(bounds.x, track_y, bounds.w, 5.0, 2.0);
+        let paint = vg::Paint::color(vg::Color::rgbaf(0.0, 0.0, 0.0, 0.2));
+        canvas.fill_path(&track, &paint);
+
+        // The blue fill up to the current tick, and the white thumb at its
+        // end.
+        let fill_w = (bounds.w - 10.0) * (self.speed() as f32 / (SPEED_TICKS - 1) as f32);
+        if fill_w > 0.0 {
+            let mut fill = vg::Path::new();
+            fill.rounded_rect(bounds.x + 5.0, track_y, fill_w, 5.0, 2.0);
+            let paint = vg::Paint::color(ACCENT);
+            canvas.fill_path(&fill, &paint);
+        }
+
+        let mut thumb = vg::Path::new();
+        thumb.arc(
+            bounds.x + 5.0 + fill_w,
+            bounds.y + bounds.h / 2.0,
+            5.0,
+            0.0,
+            std::f32::consts::TAU,
+            vg::Solidity::Solid,
+        );
+        thumb.close();
+        let paint = vg::Paint::color(vg::Color::rgbaf(1.0, 1.0, 1.0, 1.0));
+        canvas.fill_path(&thumb, &paint);
+        let mut paint = vg::Paint::color(vg::Color::rgbaf(0.4, 0.4, 0.4, 1.0));
+        paint.set_line_width(1.0);
+        canvas.stroke_path(&thumb, &paint);
+    }
+}
 
 pub(crate) fn create(
     params: Arc<AskompParams>,
@@ -1125,13 +1240,13 @@ pub(crate) fn create(
                 .left(Pixels(25.0))
                 .top(Pixels(77.0))
                 .width(Pixels(30.0))
-                .height(Pixels(198.0));
+                .height(Pixels(185.0));
 
             Label::new(cx, Data::neg_gr_db.map(|gr| format!("{gr:.1}")))
                 .font_size(10.0)
                 .color(Color::rgba(255, 255, 255, 128))
                 .left(Pixels(25.0))
-                .top(Pixels(255.0))
+                .top(Pixels(239.0))
                 .width(Pixels(30.0))
                 .height(Pixels(12.0))
                 .text_align(TextAlign::Center)
@@ -1148,7 +1263,7 @@ pub(crate) fn create(
             .left(Pixels(65.0))
             .top(Pixels(77.0))
             .width(Pixels(410.0))
-            .height(Pixels(198.0));
+            .height(Pixels(185.0));
 
             // The threshold value labels, centered in each half of the
             // waveform display and faded in while the corresponding threshold
@@ -1158,7 +1273,7 @@ pub(crate) fn create(
                 .color(Color::rgba(255, 255, 255, 60))
                 .opacity(Data::pos_th_hover.map(|hovered| if *hovered { 1.0 } else { 0.0 }))
                 .left(Pixels(70.0))
-                .top(Pixels(115.0))
+                .top(Pixels(112.0))
                 .width(Pixels(400.0))
                 .height(Pixels(28.0))
                 .text_align(TextAlign::Center)
@@ -1169,16 +1284,33 @@ pub(crate) fn create(
                 .color(Color::rgba(255, 255, 255, 60))
                 .opacity(Data::neg_th_hover.map(|hovered| if *hovered { 1.0 } else { 0.0 }))
                 .left(Pixels(70.0))
-                .top(Pixels(209.0))
+                .top(Pixels(201.0))
                 .width(Pixels(400.0))
                 .height(Pixels(28.0))
                 .text_align(TextAlign::Center)
                 .pointer_events(false);
 
+            // The waveform speed slider, between the waveform display and the
+            // LINK toggle.
+            Label::new(cx, "Speed")
+                .font_size(9.0)
+                .color(Color::rgb(120, 120, 120))
+                .left(Pixels(76.0))
+                .top(Pixels(266.0))
+                .width(Pixels(54.0))
+                .height(Pixels(10.0))
+                .pointer_events(false);
+
+            WaveSpeedSlider::new(cx, shared.clone())
+                .left(Pixels(134.0))
+                .top(Pixels(265.0))
+                .width(Pixels(336.0))
+                .height(Pixels(12.0));
+
             // The LINK toggle, centered horizontally like the original.
             LinkButton::new(cx, &params)
                 .left(Pixels(225.0))
-                .top(Pixels(280.0))
+                .top(Pixels(282.0))
                 .width(Pixels(50.0))
                 .height(Pixels(20.0));
 
@@ -1198,14 +1330,14 @@ pub(crate) fn create(
                     .pointer_events(false);
             })
             .left(Pixels(90.0))
-            .top(Pixels(320.0))
+            .top(Pixels(322.0))
             .size(Pixels(50.0));
 
             Label::new(cx, Data::attack_ms.map(|v| format!("{v:.0}ms")))
                 .font_size(12.0)
                 .color(Color::rgb(51, 51, 51))
                 .left(Pixels(65.0))
-                .top(Pixels(372.0))
+                .top(Pixels(374.0))
                 .width(Pixels(50.0))
                 .height(Pixels(16.0))
                 .text_align(TextAlign::Center)
@@ -1224,14 +1356,14 @@ pub(crate) fn create(
                     .pointer_events(false);
             })
             .left(Pixels(150.0))
-            .top(Pixels(320.0))
+            .top(Pixels(322.0))
             .size(Pixels(50.0));
 
             Label::new(cx, Data::knee.map(|v| format!("{v:.1}dB")))
                 .font_size(12.0)
                 .color(Color::rgb(51, 51, 51))
                 .left(Pixels(125.0))
-                .top(Pixels(372.0))
+                .top(Pixels(374.0))
                 .width(Pixels(50.0))
                 .height(Pixels(16.0))
                 .text_align(TextAlign::Center)
@@ -1250,7 +1382,7 @@ pub(crate) fn create(
                     .pointer_events(false);
             })
             .left(Pixels(210.0))
-            .top(Pixels(305.0))
+            .top(Pixels(307.0))
             .size(Pixels(80.0));
 
             ZStack::new(cx, |cx| {
@@ -1266,14 +1398,14 @@ pub(crate) fn create(
                     .pointer_events(false);
             })
             .left(Pixels(300.0))
-            .top(Pixels(320.0))
+            .top(Pixels(322.0))
             .size(Pixels(50.0));
 
             Label::new(cx, Data::stereo_link.map(|v| format!("{v:.0}%")))
                 .font_size(12.0)
                 .color(Color::rgb(51, 51, 51))
                 .left(Pixels(275.0))
-                .top(Pixels(372.0))
+                .top(Pixels(374.0))
                 .width(Pixels(50.0))
                 .height(Pixels(16.0))
                 .text_align(TextAlign::Center)
@@ -1292,14 +1424,14 @@ pub(crate) fn create(
                     .pointer_events(false);
             })
             .left(Pixels(360.0))
-            .top(Pixels(320.0))
+            .top(Pixels(322.0))
             .size(Pixels(50.0));
 
             Label::new(cx, Data::release_ms.map(|v| format!("{v:.0}ms")))
                 .font_size(12.0)
                 .color(Color::rgb(51, 51, 51))
                 .left(Pixels(335.0))
-                .top(Pixels(372.0))
+                .top(Pixels(374.0))
                 .width(Pixels(50.0))
                 .height(Pixels(16.0))
                 .text_align(TextAlign::Center)
