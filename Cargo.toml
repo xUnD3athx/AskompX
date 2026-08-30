@@ -1,0 +1,24 @@
+[package]
+name = "askompx"
+version = "1.0.0"
+edition = "2021"
+license = "GPL-2.0"
+authors = ["UnD3ath <und3ath@outlook.com>"]
+description = "AskompX - an asymmetrical compressor"
+repository = "https://github.com/UnD3ath/Askomp"
+
+[workspace]
+members = ["xtask"]
+
+[lib]
+# The `lib` artifact is needed for the standalone target
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["standalone"] }
+nih_plug_vizia = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+atomic_float = "0.1"
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
