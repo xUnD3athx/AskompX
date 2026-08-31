@@ -1050,6 +1050,92 @@ impl View for LinkButton {
     }
 }
 
+/// The round `delta` toggle at the right end of the knob row. When enabled,
+/// the plugin outputs the difference between the processed and the input
+/// signal instead of the processed signal.
+struct DeltaButton {
+    delta_ptr: ParamPtr,
+}
+
+impl DeltaButton {
+    pub fn new<'a>(cx: &'a mut Context, params: &'a Arc<AskompParams>) -> Handle<'a, Self> {
+        Self {
+            delta_ptr: params.delta.as_ptr(),
+        }
+        .build(cx, |cx| {
+            Label::new(cx, "delta")
+                .font_size(8.0)
+                .font_weight(FontWeightKeyword::Light)
+                .color(Color::rgb(255, 255, 255))
+                .top(Stretch(1.0))
+                .bottom(Stretch(1.0))
+                .left(Stretch(1.0))
+                .right(Stretch(1.0));
+        })
+    }
+}
+
+impl View for DeltaButton {
+    fn element(&self) -> Option<&'static str> {
+        Some("delta-button")
+    }
+
+    fn event(&mut self, cx: &mut EventContext, event: &mut Event) {
+        event.map(|window_event, meta| match window_event {
+            WindowEvent::MouseDown(MouseButton::Left) => {
+                let enabled = unsafe { self.delta_ptr.unmodulated_plain_value() } > 0.5;
+                cx.emit(RawParamEvent::BeginSetParameter(self.delta_ptr));
+                cx.emit(RawParamEvent::SetParameterNormalized(
+                    self.delta_ptr,
+                    if enabled { 0.0 } else { 1.0 },
+                ));
+                cx.emit(RawParamEvent::EndSetParameter(self.delta_ptr));
+
+                meta.consume();
+            }
+            _ => {}
+        });
+    }
+
+    fn draw(&self, cx: &mut DrawContext, canvas: &mut Canvas) {
+        let bounds = cx.bounds();
+        if bounds.w == 0.0 || bounds.h == 0.0 {
+            return;
+        }
+
+        let mouse = cx.mouse();
+        let hovered = mouse.cursorx >= bounds.x
+            && mouse.cursorx <= bounds.x + bounds.w
+            && mouse.cursory >= bounds.y
+            && mouse.cursory <= bounds.y + bounds.h;
+
+        // Same four-state colors as the LINK toggle, but drawn as a circle.
+        let enabled = unsafe { self.delta_ptr.unmodulated_plain_value() } > 0.5;
+        let color = match (enabled, hovered) {
+            (true, true) => vg::Color::rgbaf(0x28 as f32 / 255.0, 0x72 as f32 / 255.0, 0xcc as f32 / 255.0, 1.0),
+            (true, false) => ACCENT,
+            (false, true) => vg::Color::rgbaf(0x99 as f32 / 255.0, 0x99 as f32 / 255.0, 0x99 as f32 / 255.0, 1.0),
+            (false, false) => vg::Color::rgbaf(0xcc as f32 / 255.0, 0xcc as f32 / 255.0, 0xcc as f32 / 255.0, 1.0),
+        };
+
+        let center_x = bounds.x + bounds.w / 2.0;
+        let center_y = bounds.y + bounds.h / 2.0;
+        let radius = bounds.w.min(bounds.h) / 2.0;
+        let mut circle = vg::Path::new();
+        circle.arc(
+            center_x,
+            center_y,
+            radius,
+            0.0,
+            std::f32::consts::TAU,
+            vg::Solidity::Solid,
+        );
+        circle.close();
+        let paint = vg::Paint::color(color);
+        canvas.fill_path(&circle, &paint);
+    }
+}
+
 /// The waveform speed slider from the original's settings panel: 8 ticks that
 /// set how many process blocks pass before the waveform display scrolls by one
 /// column. Writes straight to the shared state and reads it back while
@@ -1477,6 +1563,12 @@ pub(crate) fn create(
                 .height(Pixels(16.0))
                 .text_align(TextAlign::Center)
                 .pointer_events(false);
+
+            // The round delta toggle, vertically centered with the knob row.
+            DeltaButton::new(cx, &params)
+                .left(Pixels(440.0))
+                .top(Pixels(322.0))
+                .size(Pixels(46.0));
         })
         .background_color(Color::rgb(102, 102, 102));
     })

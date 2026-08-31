@@ -77,6 +77,11 @@ pub struct AskompParams {
     /// Whether the two thresholds should move together.
     #[id = "link"]
     pub link: BoolParam,
+
+    /// Whether to output the difference between the processed and the input
+    /// signal instead of the processed signal.
+    #[id = "delta"]
+    pub delta: BoolParam,
 }
 
 impl Default for AskompParams {
@@ -141,6 +146,8 @@ impl Default for AskompParams {
             .with_step_size(1.0),
 
             link: BoolParam::new("Link", true),
+
+            delta: BoolParam::new("Delta", false),
         }
     }
 }
@@ -314,6 +321,7 @@ impl Plugin for Askomp {
         }
 
         // Per-block meter maxima, matching the original's process loop.
+        let delta = self.params.delta.value();
         let mut output_peak_left = 0.0f32;
         let mut output_peak_right = 0.0f32;
         let mut positive_compression = 0.0f64;
@@ -364,8 +372,15 @@ impl Plugin for Askomp {
             for sample_idx in 0..block_length {
                 let in_l = input_f64[sample_idx];
                 let in_r = input_f64[block_length + sample_idx];
-                let out_l = output_f64[sample_idx] as f32;
-                let out_r = output_f64[block_length + sample_idx] as f32;
+                let mut out_l = output_f64[sample_idx] as f32;
+                let mut out_r = output_f64[block_length + sample_idx] as f32;
+
+                // In delta mode the plugin outputs the difference signal, so
+                // only what the compressor actually did is audible.
+                if delta {
+                    out_l -= in_l as f32;
+                    out_r -= in_r as f32;
+                }
 
                 channel_slices[0][sample_idx] = out_l;
                 channel_slices[1][sample_idx] = out_r;
