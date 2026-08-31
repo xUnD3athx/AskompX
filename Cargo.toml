@@ -19,6 +19,13 @@ nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", features = ["s
 nih_plug_vizia = { git = "https://github.com/robbert-vdh/nih-plug.git" }
 atomic_float = "0.1"
 
+# nih-plug pins a 2024-era baseview that causes the editor to become
+# unresponsive (robbert-vdh/nih-plug#235, #242). Override it with upstream
+# master, cloned into `vendor/` at rev c36ca15:
+#   git clone https://github.com/RustAudio/baseview vendor/baseview
+[patch."https://github.com/RustAudio/baseview.git"]
+baseview = { path = "vendor/baseview" }
+
 [profile.release]
 lto = "thin"
 strip = "symbols"
