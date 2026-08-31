@@ -1327,9 +1327,10 @@ pub(crate) fn create(
                 .width(Pixels(50.0))
                 .height(Pixels(20.0));
 
-            // The knob row: small attack, knee, stereo link and release knobs
-            // flanking the large ratio knob, all vertically centered at
-            // y = 345 with their value labels below the small knobs.
+            // The knob row: HP, stereo link, attack, the large ratio knob,
+            // release and knee, all vertically centered at y = 345. Attack and
+            // release sit symmetrically around the centered ratio knob, with
+            // their value labels below the small knobs.
             ZStack::new(cx, |cx| {
                 KnobView::new(cx, &params, KnobKind::Attack).size(Pixels(46.0));
 
@@ -1342,42 +1343,16 @@ pub(crate) fn create(
                     .right(Stretch(1.0))
                     .pointer_events(false);
             })
-            .left(Pixels(154.0))
+            .left(Pixels(147.0))
             .top(Pixels(322.0))
             .size(Pixels(46.0));
 
             Label::new(cx, Data::attack_ms.map(|v| format!("{v:.0}ms")))
                 .font_size(12.0)
                 .color(Color::rgb(51, 51, 51))
-                .left(Pixels(154.0))
+                .left(Pixels(147.0))
                 .top(Pixels(372.0))
                 .width(Pixels(46.0))
-                .height(Pixels(16.0))
-                .text_align(TextAlign::Center)
-                .pointer_events(false);
-
-            ZStack::new(cx, |cx| {
-                KnobView::new(cx, &params, KnobKind::Knee).size(Pixels(42.0));
-
-                Label::new(cx, "K")
-                    .font_size(12.0)
-                    .color(Color::rgb(51, 51, 51))
-                    .top(Stretch(1.0))
-                    .bottom(Stretch(1.0))
-                    .left(Stretch(1.0))
-                    .right(Stretch(1.0))
-                    .pointer_events(false);
-            })
-            .left(Pixels(104.0))
-            .top(Pixels(324.0))
-            .size(Pixels(42.0));
-
-            Label::new(cx, Data::knee.map(|v| format!("{v:.1}dB")))
-                .font_size(12.0)
-                .color(Color::rgb(51, 51, 51))
-                .left(Pixels(104.0))
-                .top(Pixels(370.0))
-                .width(Pixels(42.0))
                 .height(Pixels(16.0))
                 .text_align(TextAlign::Center)
                 .pointer_events(false);
@@ -1395,14 +1370,14 @@ pub(crate) fn create(
                     .right(Stretch(1.0))
                     .pointer_events(false);
             })
-            .left(Pixels(16.0))
+            .left(Pixels(35.0))
             .top(Pixels(327.0))
             .size(Pixels(36.0));
 
             Label::new(cx, Data::hp_hz.map(|v| format!("{v:.0}Hz")))
                 .font_size(12.0)
                 .color(Color::rgb(51, 51, 51))
-                .left(Pixels(16.0))
+                .left(Pixels(35.0))
                 .top(Pixels(368.0))
                 .width(Pixels(36.0))
                 .height(Pixels(16.0))
@@ -1437,14 +1412,14 @@ pub(crate) fn create(
                     .right(Stretch(1.0))
                     .pointer_events(false);
             })
-            .left(Pixels(60.0))
+            .left(Pixels(91.0))
             .top(Pixels(327.0))
             .size(Pixels(36.0));
 
             Label::new(cx, Data::stereo_link.map(|v| format!("{v:.0}%")))
                 .font_size(12.0)
                 .color(Color::rgb(51, 51, 51))
-                .left(Pixels(60.0))
+                .left(Pixels(91.0))
                 .top(Pixels(368.0))
                 .width(Pixels(36.0))
                 .height(Pixels(16.0))
@@ -1463,16 +1438,42 @@ pub(crate) fn create(
                     .right(Stretch(1.0))
                     .pointer_events(false);
             })
-            .left(Pixels(348.0))
+            .left(Pixels(305.0))
             .top(Pixels(320.0))
             .size(Pixels(50.0));
 
             Label::new(cx, Data::release_ms.map(|v| format!("{v:.0}ms")))
                 .font_size(12.0)
                 .color(Color::rgb(51, 51, 51))
-                .left(Pixels(335.0))
+                .left(Pixels(305.0))
                 .top(Pixels(374.0))
                 .width(Pixels(50.0))
+                .height(Pixels(16.0))
+                .text_align(TextAlign::Center)
+                .pointer_events(false);
+
+            ZStack::new(cx, |cx| {
+                KnobView::new(cx, &params, KnobKind::Knee).size(Pixels(42.0));
+
+                Label::new(cx, "K")
+                    .font_size(12.0)
+                    .color(Color::rgb(51, 51, 51))
+                    .top(Stretch(1.0))
+                    .bottom(Stretch(1.0))
+                    .left(Stretch(1.0))
+                    .right(Stretch(1.0))
+                    .pointer_events(false);
+            })
+            .left(Pixels(375.0))
+            .top(Pixels(324.0))
+            .size(Pixels(42.0));
+
+            Label::new(cx, Data::knee.map(|v| format!("{v:.1}dB")))
+                .font_size(12.0)
+                .color(Color::rgb(51, 51, 51))
+                .left(Pixels(375.0))
+                .top(Pixels(370.0))
+                .width(Pixels(42.0))
                 .height(Pixels(16.0))
                 .text_align(TextAlign::Center)
                 .pointer_events(false);
