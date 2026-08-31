@@ -1318,7 +1318,7 @@ pub(crate) fn create(
                 .pointer_events(false);
 
             PillMeter::new(cx, shared.clone(), MeterKind::OutputPeakRight, false)
-                .left(Pixels(364.0))
+                .left(Pixels(340.0))
                 .top(Pixels(40.0))
                 .width(Pixels(135.0))
                 .height(Pixels(20.0));
