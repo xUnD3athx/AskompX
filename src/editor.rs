@@ -303,9 +303,11 @@ impl View for DualGrMeter {
 
         // The outer `#666` border with its rounded corners, and the inner
         // `#66000000` container inset by 5, exactly like the original's
-        // nested borders.
+        // nested borders. The inner radius is reduced by the inset so the
+        // corners stay concentric.
+        let outer_radius = bounds.w / 2.0;
         let mut outer = vg::Path::new();
-        outer.rounded_rect(bounds.x, bounds.y, bounds.w, bounds.h, bounds.w / 2.0);
+        outer.rounded_rect(bounds.x, bounds.y, bounds.w, bounds.h, outer_radius);
         let paint = vg::Paint::color(vg::Color::rgbaf(0.4, 0.4, 0.4, 1.0));
         canvas.fill_path(&outer, &paint);
 
@@ -314,16 +316,17 @@ impl View for DualGrMeter {
         let inner_w = bounds.w - 10.0;
         let inner_h = bounds.h - 10.0;
         let mut inner = vg::Path::new();
-        inner.rounded_rect(inner_x, inner_y, inner_w, inner_h, 5.0);
+        inner.rounded_rect(inner_x, inner_y, inner_w, inner_h, outer_radius - 5.0);
         let paint = vg::Paint::color(vg::Color::rgbaf(0.0, 0.0, 0.0, 0.4));
         canvas.fill_path(&inner, &paint);
 
         // The two gain reduction fills, growing away from the center line.
-        // The original uses `Margin="2"` and a 3px corner radius on the outer
-        // side of each half.
+        // The original uses `Margin="2"` and rounds the outer corners of each
+        // half so they follow the container's curve.
         let center_y = bounds.y + bounds.h / 2.0;
         let fill_x = inner_x + 2.0;
         let fill_w = inner_w - 4.0;
+        let fill_radius = outer_radius - 7.0;
         let avail = inner_h / 2.0 - 2.0;
         let positive_level = self
             .shared
@@ -346,8 +349,8 @@ impl View for DualGrMeter {
                 center_y - fill_height,
                 fill_w,
                 fill_height,
-                3.0,
-                3.0,
+                fill_radius,
+                fill_radius,
                 0.0,
                 0.0,
             );
@@ -361,8 +364,8 @@ impl View for DualGrMeter {
                 fill_height,
                 0.0,
                 0.0,
-                3.0,
-                3.0,
+                fill_radius,
+                fill_radius,
             );
         }
         let paint = vg::Paint::color(ACCENT);
@@ -1323,11 +1326,19 @@ pub(crate) fn create(
                 .width(Pixels(135.0))
                 .height(Pixels(20.0));
 
-            // The gain reduction meter with its numeric values, rendered
-            // inside the top and bottom of the bar like the original.
+            // The gain reduction meter, with the positive and negative
+            // reduction shown as separate numeric values inside the top and
+            // bottom of the bar like the original. Both labels are created
+            // after the meter so they render on top of it.
+            DualGrMeter::new(cx, shared.clone())
+                .left(Pixels(25.0))
+                .top(Pixels(77.0))
+                .width(Pixels(30.0))
+                .height(Pixels(185.0));
+
             Label::new(cx, Data::pos_gr_db.map(|gr| format!("{gr:.1}")))
                 .font_size(10.0)
-                .color(Color::rgba(255, 255, 255, 128))
+                .color(Color::rgba(255, 255, 255, 200))
                 .left(Pixels(25.0))
                 .top(Pixels(84.0))
                 .width(Pixels(30.0))
@@ -1335,15 +1346,9 @@ pub(crate) fn create(
                 .text_align(TextAlign::Center)
                 .pointer_events(false);
 
-            DualGrMeter::new(cx, shared.clone())
-                .left(Pixels(25.0))
-                .top(Pixels(77.0))
-                .width(Pixels(30.0))
-                .height(Pixels(185.0));
-
             Label::new(cx, Data::neg_gr_db.map(|gr| format!("{gr:.1}")))
                 .font_size(10.0)
-                .color(Color::rgba(255, 255, 255, 128))
+                .color(Color::rgba(255, 255, 255, 200))
                 .left(Pixels(25.0))
                 .top(Pixels(239.0))
                 .width(Pixels(30.0))
