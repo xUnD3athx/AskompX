@@ -1539,7 +1539,7 @@ pub(crate) fn create(
                 .pointer_events(false);
 
             ZStack::new(cx, |cx| {
-                KnobView::new(cx, &params, KnobKind::Knee).size(Pixels(42.0));
+                KnobView::new(cx, &params, KnobKind::Knee).size(Pixels(36.0));
 
                 Label::new(cx, "K")
                     .font_size(12.0)
@@ -1550,25 +1550,26 @@ pub(crate) fn create(
                     .right(Stretch(1.0))
                     .pointer_events(false);
             })
-            .left(Pixels(375.0))
-            .top(Pixels(324.0))
-            .size(Pixels(42.0));
+            .left(Pixels(373.0))
+            .top(Pixels(327.0))
+            .size(Pixels(36.0));
 
             Label::new(cx, Data::knee.map(|v| format!("{v:.1}dB")))
                 .font_size(12.0)
                 .color(Color::rgb(51, 51, 51))
-                .left(Pixels(375.0))
-                .top(Pixels(370.0))
-                .width(Pixels(42.0))
+                .left(Pixels(373.0))
+                .top(Pixels(368.0))
+                .width(Pixels(36.0))
                 .height(Pixels(16.0))
                 .text_align(TextAlign::Center)
                 .pointer_events(false);
 
-            // The round delta toggle, vertically centered with the knob row.
+            // The round delta toggle, mirroring the sidechain high-pass knob
+            // on the left edge of the knob row.
             DeltaButton::new(cx, &params)
-                .left(Pixels(440.0))
-                .top(Pixels(322.0))
-                .size(Pixels(46.0));
+                .left(Pixels(429.0))
+                .top(Pixels(327.0))
+                .size(Pixels(36.0));
         })
         .background_color(Color::rgb(102, 102, 102));
     })
