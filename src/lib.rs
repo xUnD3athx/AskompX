@@ -372,21 +372,27 @@ impl Plugin for Askomp {
             for sample_idx in 0..block_length {
                 let in_l = input_f64[sample_idx];
                 let in_r = input_f64[block_length + sample_idx];
-                let mut out_l = output_f64[sample_idx] as f32;
-                let mut out_r = output_f64[block_length + sample_idx] as f32;
+                let compressed_l = output_f64[sample_idx] as f32;
+                let compressed_r = output_f64[block_length + sample_idx] as f32;
 
                 // In delta mode the plugin outputs the difference signal, so
-                // only what the compressor actually did is audible.
-                if delta {
-                    out_l -= in_l as f32;
-                    out_r -= in_r as f32;
-                }
+                // only what the compressor actually did is audible. The gain
+                // reduction meters always measure the compressor's action on
+                // the full signal, not the delta output.
+                let (out_l, out_r) = if delta {
+                    (
+                        compressed_l - in_l as f32,
+                        compressed_r - in_r as f32,
+                    )
+                } else {
+                    (compressed_l, compressed_r)
+                };
 
                 channel_slices[0][sample_idx] = out_l;
                 channel_slices[1][sample_idx] = out_r;
 
                 let mix_in = (in_l + in_r) / 2.0;
-                let mix_out = ((out_l + out_r) / 2.0) as f64;
+                let mix_out = ((compressed_l + compressed_r) / 2.0) as f64;
 
                 // The gain reduction applied to either half-wave, as a linear
                 // amplitude delta.
