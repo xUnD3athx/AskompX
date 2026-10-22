@@ -47,13 +47,8 @@ const TITLE_FONT: &str = "Odalisque NF";
 #[derive(Lens)]
 struct Data {
     params: Arc<AskompParams>,
-    shared: Arc<AskompShared>,
 
-    // Display values, updated by the background update thread.
-    /// The smoothed output peak level of the left channel, linear.
-    pos_gr_db: f32,
-    /// The smoothed negative gain reduction in decibels.
-    neg_gr_db: f32,
+    // Display values, refreshed from the shared state on UI events.
     /// The current positive threshold, for the value label.
     pos_th_db: f32,
     /// The current negative threshold, for the value label.
@@ -95,7 +90,6 @@ impl Data {
     fn build(
         cx: &mut Context,
         params: Arc<AskompParams>,
-        shared: Arc<AskompShared>,
         positive_hovered: Arc<AtomicBool>,
         negative_hovered: Arc<AtomicBool>,
     ) {
@@ -108,9 +102,6 @@ impl Data {
 
         Data {
             params,
-            shared,
-            pos_gr_db: 0.0,
-            neg_gr_db: 0.0,
             pos_th_db: 0.0,
             neg_th_db: 0.0,
             attack_ms: initial_attack,
@@ -132,9 +123,8 @@ impl Data {
         // The smoothing already happens per audio block on the audio thread
         // (matching the original's per-block UI updates), so the display
         // values are read directly.
-        self.pos_gr_db = self.shared.positive_compression_db.load(Ordering::Relaxed);
-        self.neg_gr_db = self.shared.negative_compression_db.load(Ordering::Relaxed);
-
+        // The gain reduction numbers are drawn by `GrReadout`, which reads the
+        // atomics every frame instead of caching them here.
         self.pos_th_db = self.params.positive_threshold.value();
         self.neg_th_db = self.params.negative_threshold.value();
         self.attack_ms = self.params.attack.value();
@@ -378,6 +368,78 @@ impl View for DualGrMeter {
         let mut paint = vg::Paint::color(vg::Color::rgbaf(0.4, 0.4, 0.4, 1.0));
         paint.set_line_width(1.0);
         canvas.stroke_path(&line, &paint);
+    }
+}
+
+/// A numeric gain reduction readout drawn inside the GR meter. Unlike the
+/// other value labels this is not bound to the `Data` model: the numbers have
+/// to follow the audio every frame, and `Data` only refreshes on parameter and
+/// mouse events. Reading the atomics while drawing keeps them live without a
+/// background thread.
+struct GrReadout {
+    shared: Arc<AskompShared>,
+    /// Whether this reads the negative half-wave's reduction.
+    negative: bool,
+    /// The font is registered with the canvas lazily, on the first draw.
+    font: Cell<Option<vg::FontId>>,
+}
+
+impl GrReadout {
+    fn new(cx: &mut Context, shared: Arc<AskompShared>, negative: bool) -> Handle<'_, Self> {
+        Self {
+            shared,
+            negative,
+            font: Cell::new(None),
+        }
+        .build(cx, |_| {})
+    }
+
+    fn value_db(&self) -> f32 {
+        if self.negative {
+            self.shared.negative_compression_db.load(Ordering::Relaxed)
+        } else {
+            self.shared.positive_compression_db.load(Ordering::Relaxed)
+        }
+    }
+
+    fn text(&self) -> String {
+        format!("{:.1}", self.value_db())
+    }
+}
+
+impl View for GrReadout {
+    fn element(&self) -> Option<&'static str> {
+        Some("gr-readout")
+    }
+
+    fn draw(&self, cx: &mut DrawContext, canvas: &mut Canvas) {
+        let bounds = cx.bounds();
+        if bounds.w == 0.0 || bounds.h == 0.0 {
+            return;
+        }
+
+        let font = match self.font.get() {
+            Some(font) => font,
+            None => {
+                let Ok(font) = canvas.add_font_mem(assets::fonts::NOTO_SANS_REGULAR) else {
+                    return;
+                };
+                self.font.set(Some(font));
+                font
+            }
+        };
+
+        let mut paint = vg::Paint::color(vg::Color::rgbaf(1.0, 1.0, 1.0, 0.784));
+        paint.set_font(&[font]);
+        paint.set_font_size(10.0);
+        paint.set_text_align(vg::Align::Center);
+        paint.set_text_baseline(vg::Baseline::Middle);
+        let _ = canvas.fill_text(
+            bounds.x + bounds.w / 2.0,
+            bounds.y + bounds.h / 2.0,
+            self.text(),
+            &paint,
+        );
     }
 }
 
@@ -1271,7 +1333,6 @@ pub(crate) fn create(
         Data::build(
             cx,
             params.clone(),
-            shared.clone(),
             positive_hovered.clone(),
             negative_hovered.clone(),
         );
@@ -1328,7 +1389,7 @@ pub(crate) fn create(
 
             // The gain reduction meter, with the positive and negative
             // reduction shown as separate numeric values inside the top and
-            // bottom of the bar like the original. Both labels are created
+            // bottom of the bar like the original. Both readouts are created
             // after the meter so they render on top of it.
             DualGrMeter::new(cx, shared.clone())
                 .left(Pixels(25.0))
@@ -1336,24 +1397,18 @@ pub(crate) fn create(
                 .width(Pixels(30.0))
                 .height(Pixels(185.0));
 
-            Label::new(cx, Data::pos_gr_db.map(|gr| format!("{gr:.1}")))
-                .font_size(10.0)
-                .color(Color::rgba(255, 255, 255, 200))
+            GrReadout::new(cx, shared.clone(), false)
                 .left(Pixels(25.0))
                 .top(Pixels(84.0))
                 .width(Pixels(30.0))
                 .height(Pixels(12.0))
-                .text_align(TextAlign::Center)
                 .pointer_events(false);
 
-            Label::new(cx, Data::neg_gr_db.map(|gr| format!("{gr:.1}")))
-                .font_size(10.0)
-                .color(Color::rgba(255, 255, 255, 200))
+            GrReadout::new(cx, shared.clone(), true)
                 .left(Pixels(25.0))
                 .top(Pixels(239.0))
                 .width(Pixels(30.0))
                 .height(Pixels(12.0))
-                .text_align(TextAlign::Center)
                 .pointer_events(false);
 
             // The waveform display.
@@ -1578,4 +1633,112 @@ pub(crate) fn create(
         })
         .background_color(Color::rgb(102, 102, 102));
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Creates a readout over a freshly allocated shared state, returning both
+    /// so tests can mutate the atomics while holding the readout.
+    fn fresh_readout(negative: bool) -> (Arc<AskompShared>, GrReadout) {
+        let shared = Arc::new(AskompShared::new(Arc::default()));
+        let readout = GrReadout {
+            shared: shared.clone(),
+            negative,
+            font: std::cell::Cell::new(None),
+        };
+        (shared, readout)
+    }
+
+    /// A freshly created shared state has never compressed anything, so the
+    /// readout shows `0.0` rather than an empty string.
+    #[test]
+    fn fresh_shared_state_reads_as_zero() {
+        let (_shared, readout) = fresh_readout(false);
+
+        assert_eq!(readout.value_db(), 0.0);
+        assert_eq!(readout.text(), "0.0");
+    }
+
+    /// A published positive gain reduction is formatted with one decimal.
+    #[test]
+    fn positive_value_is_formatted_with_one_decimal() {
+        let (shared, readout) = fresh_readout(false);
+        shared
+            .positive_compression_db
+            .store(6.04, std::sync::atomic::Ordering::Relaxed);
+
+        assert_eq!(readout.text(), "6.0");
+    }
+
+    /// The value is read on every call instead of being cached at
+    /// construction, which is what keeps the meter live during playback.
+    #[test]
+    fn text_reflects_later_atomic_updates() {
+        let (shared, readout) = fresh_readout(false);
+
+        shared
+            .positive_compression_db
+            .store(6.04, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(readout.text(), "6.0");
+
+        shared
+            .positive_compression_db
+            .store(12.0, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(readout.text(), "12.0");
+    }
+
+    /// A negative-polarity readout follows the negative channel and ignores
+    /// the positive one, even when both are published.
+    #[test]
+    fn negative_readout_uses_negative_channel() {
+        let (shared, readout) = fresh_readout(true);
+        shared
+            .positive_compression_db
+            .store(3.0, std::sync::atomic::Ordering::Relaxed);
+        shared
+            .negative_compression_db
+            .store(9.0, std::sync::atomic::Ordering::Relaxed);
+
+        assert_eq!(readout.value_db(), 9.0);
+        assert_eq!(readout.text(), "9.0");
+    }
+
+    /// The text rounds to one decimal exactly like `format!("{:.1}")`.
+    #[test]
+    fn text_rounds_to_one_decimal() {
+        let (shared, readout) = fresh_readout(false);
+
+        shared
+            .positive_compression_db
+            .store(3.24, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(readout.text(), "3.2");
+
+        shared
+            .positive_compression_db
+            .store(3.26, std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(readout.text(), "3.3");
+    }
+
+    /// `value_db()` returns the raw stored value for both polarities, without
+    /// any rounding applied.
+    #[test]
+    fn value_db_returns_unrounded_value_for_both_polarities() {
+        let (shared, positive) = fresh_readout(false);
+        let negative = GrReadout {
+            shared: shared.clone(),
+            negative: true,
+            font: std::cell::Cell::new(None),
+        };
+        shared
+            .positive_compression_db
+            .store(2.5, std::sync::atomic::Ordering::Relaxed);
+        shared
+            .negative_compression_db
+            .store(7.25, std::sync::atomic::Ordering::Relaxed);
+
+        assert_eq!(positive.value_db(), 2.5);
+        assert_eq!(negative.value_db(), 7.25);
+    }
 }
