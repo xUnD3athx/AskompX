@@ -46,7 +46,8 @@ The bundled plugin is written to `target/bundled/askompx.vst3`. Copy that folder
 directory (`C:\Program Files\Common Files\VST3`). No additional runtime fonts or DLLs are needed,
 unlike the original.
 
-For a CLAP build, add `--clap` (and optionally `--vst3`) to the same command.
+The same command also writes `askompx.clap` and a standalone `askompx.exe` alongside the VST3
+bundle.
 
 To preview the editor outside of a DAW, run the standalone binary:
 
