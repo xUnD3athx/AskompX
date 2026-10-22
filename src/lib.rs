@@ -204,6 +204,21 @@ impl AskompShared {
     }
 }
 
+/// The stereo mix of the compressed (pre-delta) signal.
+fn compressed_mix(left: f32, right: f32) -> f64 {
+    (left as f64 + right as f64) / 2.0
+}
+
+/// The stereo mix that is actually written to the output buffer. In delta mode
+/// this is the difference between the compressed and the input signal.
+fn output_mix(input_mix: f64, compressed_mix: f64, delta: bool) -> f64 {
+    if delta {
+        compressed_mix - input_mix
+    } else {
+        compressed_mix
+    }
+}
+
 /// The `Askomp` asymmetrical compressor.
 pub struct Askomp {
     params: Arc<AskompParams>,
@@ -392,14 +407,18 @@ impl Plugin for Askomp {
                 channel_slices[1][sample_idx] = out_r;
 
                 let mix_in = (in_l + in_r) / 2.0;
-                let mix_out = ((compressed_l + compressed_r) / 2.0) as f64;
+                // The gain reduction meters always measure the compressor's
+                // action, so they are compared against the pre-delta signal.
+                let compressed = compressed_mix(compressed_l, compressed_r);
+                // The waveform display shows what actually leaves the plugin.
+                let mix_out = output_mix(mix_in, compressed, delta);
 
                 // The gain reduction applied to either half-wave, as a linear
                 // amplitude delta.
                 positive_compression = positive_compression
-                    .max((mix_in.max(0.0) - mix_out.max(0.0)).abs());
+                    .max((mix_in.max(0.0) - compressed.max(0.0)).abs());
                 negative_compression = negative_compression
-                    .max((mix_in.min(0.0) - mix_out.min(0.0)).abs());
+                    .max((mix_in.min(0.0) - compressed.min(0.0)).abs());
 
                 // The original only looks at the positive half for these
                 // meters.
@@ -501,3 +520,78 @@ impl Plugin for Askomp {
 
 nih_export_clap!(Askomp);
 nih_export_vst3!(Askomp);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Tolerance for comparisons where `f32` inputs were widened to `f64`.
+    const EPSILON: f64 = 1e-6;
+
+    fn assert_close(actual: f64, expected: f64) {
+        let difference = (actual - expected).abs();
+        assert!(
+            difference < EPSILON,
+            "expected {expected}, got {actual} (difference {difference})"
+        );
+    }
+
+    #[test]
+    fn compressed_mix_averages_the_two_channels() {
+        assert_close(compressed_mix(0.5, 0.1), 0.3);
+        assert_eq!(compressed_mix(-0.5, 0.5), 0.0);
+        assert_eq!(compressed_mix(1.0, 1.0), 1.0);
+    }
+
+    #[test]
+    fn non_delta_output_equals_the_compressed_mix() {
+        let compressed = compressed_mix(0.8, 0.2);
+
+        assert_eq!(output_mix(0.9, compressed, false), compressed);
+        assert_eq!(output_mix(-0.3, compressed, false), compressed);
+    }
+
+    #[test]
+    fn delta_output_equals_compressed_minus_input() {
+        let output = output_mix(0.5, 0.25, true);
+
+        assert_eq!(output, -0.25);
+    }
+
+    #[test]
+    fn delta_output_is_the_average_of_the_per_channel_differences() {
+        let (in_l, in_r) = (1.0f32, 0.0f32);
+        let (comp_l, comp_r) = (0.4f32, 0.0f32);
+
+        let input_mix = compressed_mix(in_l, in_r);
+        let compressed = compressed_mix(comp_l, comp_r);
+        let output = output_mix(input_mix, compressed, true);
+
+        let average_of_per_channel_differences =
+            ((comp_l as f64 - in_l as f64) + (comp_r as f64 - in_r as f64)) / 2.0;
+
+        assert_close(output, average_of_per_channel_differences);
+        assert_close(output, -0.3);
+    }
+
+    #[test]
+    fn delta_output_is_silent_when_nothing_was_compressed() {
+        for (left, right) in [(0.0f32, 0.0f32), (0.25, -0.75), (1.0, 1.0), (-0.5, 0.125)] {
+            let input_mix = compressed_mix(left, right);
+            // Nothing was compressed, so the compressed signal is the input.
+            let compressed = compressed_mix(left, right);
+
+            assert_eq!(output_mix(input_mix, compressed, true), 0.0);
+        }
+    }
+
+    #[test]
+    fn delta_of_symmetric_input_and_compression_is_negative_quarter() {
+        let input_mix = compressed_mix(0.5, 0.5);
+        let compressed = compressed_mix(0.25, 0.25);
+
+        assert_eq!(input_mix, 0.5);
+        assert_eq!(compressed, 0.25);
+        assert_eq!(output_mix(input_mix, compressed, true), -0.25);
+    }
+}
