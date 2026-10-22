@@ -44,6 +44,34 @@ const THRESHOLD_RANGE_DB: f32 = 36.0;
 /// The decorative display font used for the title.
 const TITLE_FONT: &str = "Odalisque NF";
 
+/// The output meters show -60 dBFS at the left edge and 0 dBFS at the right.
+const METER_FLOOR_DB: f32 = -60.0;
+/// `METER_FLOOR_DB` as a linear amplitude.
+const METER_FLOOR_LINEAR: f32 = 0.001;
+
+/// Maps a linear peak amplitude to a `0..=1` meter fraction on a dB scale.
+fn meter_fraction(linear: f32) -> f32 {
+    if !linear.is_finite() || linear <= METER_FLOOR_LINEAR {
+        return 0.0;
+    }
+
+    let db = 20.0 * linear.log10();
+    ((db - METER_FLOOR_DB) / -METER_FLOOR_DB).clamp(0.0, 1.0)
+}
+
+/// The gain reduction meters show 0 dB at the center line and this level at
+/// the outer edge.
+const GR_METER_MAX_DB: f32 = 24.0;
+
+/// Maps a gain reduction in dB to a `0..=1` bar fraction.
+fn gr_fraction(db: f32) -> f32 {
+    if !db.is_finite() || db <= 0.0 {
+        return 0.0;
+    }
+
+    (db / GR_METER_MAX_DB).clamp(0.0, 1.0)
+}
+
 #[derive(Lens)]
 struct Data {
     params: Arc<AskompParams>,
@@ -237,7 +265,7 @@ impl View for PillMeter {
         canvas.fill_path(&path, &paint);
 
         // The fill: inset by 5 (`Margin="5"`), anchored on the title's side.
-        let level = self.level().abs().clamp(0.0, 1.0);
+        let level = meter_fraction(self.level());
         let inner_x = bounds.x + 5.0;
         let inner_w = bounds.w - 10.0;
         let inner_y = bounds.y + 5.0;
@@ -318,18 +346,10 @@ impl View for DualGrMeter {
         let fill_w = inner_w - 4.0;
         let fill_radius = outer_radius - 7.0;
         let avail = inner_h / 2.0 - 2.0;
-        let positive_level = self
-            .shared
-            .positive_compression
-            .load(Ordering::Relaxed)
-            .abs()
-            .clamp(0.0, 1.0);
-        let negative_level = self
-            .shared
-            .negative_compression
-            .load(Ordering::Relaxed)
-            .abs()
-            .clamp(0.0, 1.0);
+        let positive_level =
+            gr_fraction(self.shared.positive_compression_db.load(Ordering::Relaxed));
+        let negative_level =
+            gr_fraction(self.shared.negative_compression_db.load(Ordering::Relaxed));
 
         let mut fill = vg::Path::new();
         if positive_level > 0.0 {
@@ -1740,5 +1760,172 @@ mod tests {
 
         assert_eq!(positive.value_db(), 2.5);
         assert_eq!(negative.value_db(), 7.25);
+    }
+
+    /// The tolerance allowed for the dB-scale fractions.
+    const FRACTION_EPSILON: f32 = 1e-3;
+
+    /// Asserts that a fraction matches `expected` within `FRACTION_EPSILON`.
+    /// Exact equality is reserved for the guaranteed `0.0` and `1.0` cases.
+    fn assert_close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() <= FRACTION_EPSILON,
+            "expected {expected} +/- {FRACTION_EPSILON}, got {actual}"
+        );
+    }
+
+    /// Silence and negative amplitudes read as an empty output meter: the
+    /// amplitude is rejected before any logarithm is taken.
+    #[test]
+    fn meter_fraction_zero_and_negative_amplitude_are_empty() {
+        assert_eq!(meter_fraction(0.0), 0.0);
+        assert_eq!(meter_fraction(-0.5), 0.0);
+    }
+
+    /// 0 dBFS lands on the right edge of the meter.
+    #[test]
+    fn meter_fraction_full_scale_fills_the_bar() {
+        assert_eq!(meter_fraction(1.0), 1.0);
+    }
+
+    /// A half-amplitude peak is about -6.02 dBFS, roughly 90% of the dB scale
+    /// instead of the 50% the old linear fill showed.
+    #[test]
+    fn meter_fraction_half_amplitude_is_about_ninety_percent() {
+        assert_close(meter_fraction(0.5), 0.89966);
+    }
+
+    /// -40 dBFS is two thirds of the way from -60 dBFS up to 0 dBFS.
+    #[test]
+    fn meter_fraction_minus_forty_db_is_one_third() {
+        assert_close(meter_fraction(0.01), 1.0 / 3.0);
+    }
+
+    /// The meter floor is exactly -60 dBFS, so a 0.001 amplitude is empty.
+    #[test]
+    fn meter_fraction_at_the_floor_is_zero() {
+        assert_eq!(meter_fraction(0.001), 0.0);
+    }
+
+    /// Anything at or above 0 dBFS is clamped to a full bar.
+    #[test]
+    fn meter_fraction_above_full_scale_is_clamped() {
+        assert_eq!(meter_fraction(2.0), 1.0);
+    }
+
+    /// A NaN peak must not poison the pill geometry, so it reads as empty.
+    #[test]
+    fn meter_fraction_nan_is_zero() {
+        assert_eq!(meter_fraction(f32::NAN), 0.0);
+    }
+
+    /// Each decade of amplitude moves the fill further to the right.
+    #[test]
+    fn meter_fraction_increases_monotonically_with_amplitude() {
+        let quiet = meter_fraction(0.001);
+        let low = meter_fraction(0.01);
+        let mid = meter_fraction(0.1);
+        let full = meter_fraction(1.0);
+
+        assert!(quiet < low, "{quiet} is not below {low}");
+        assert!(low < mid, "{low} is not below {mid}");
+        assert!(mid < full, "{mid} is not below {full}");
+    }
+
+    /// The fill fraction is always finite and inside 0.0..=1.0, including for
+    /// degenerate inputs, because it is multiplied into the pill width.
+    #[test]
+    fn meter_fraction_stays_within_the_unit_range() {
+        let amplitudes = [
+            f32::MIN_POSITIVE,
+            f32::MIN_POSITIVE * 0.5,
+            3.16e-5, // -90 dBFS, below the meter floor
+            0.001,
+            0.01,
+            0.1,
+            0.5,
+            0.999,
+            1.0,
+            1.5,
+            100.0,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NAN,
+            -1.0,
+            0.0,
+        ];
+
+        for amplitude in amplitudes {
+            let fraction = meter_fraction(amplitude);
+            assert!(
+                fraction.is_finite(),
+                "amplitude {amplitude} produced a non-finite fraction {fraction}"
+            );
+            assert!(
+                (0.0..=1.0).contains(&fraction),
+                "amplitude {amplitude} produced {fraction}, outside 0.0..=1.0"
+            );
+        }
+    }
+
+    /// No reduction, and negative values, leave the GR bar empty: it only
+    /// grows away from the center line.
+    #[test]
+    fn gr_fraction_zero_and_negative_db_are_empty() {
+        assert_eq!(gr_fraction(0.0), 0.0);
+        assert_eq!(gr_fraction(-3.0), 0.0);
+    }
+
+    /// Half of the meter's 24 dB range is 12 dB of reduction.
+    #[test]
+    fn gr_fraction_half_scale_is_twelve_db() {
+        assert_close(gr_fraction(12.0), 0.5);
+    }
+
+    /// The bar is full at 24 dB and stays full beyond the meter maximum.
+    #[test]
+    fn gr_fraction_clamps_at_the_meter_maximum() {
+        assert_eq!(gr_fraction(24.0), 1.0);
+        assert_eq!(gr_fraction(30.0), 1.0);
+    }
+
+    /// A typical 6 dB of compression fills a quarter of the bar instead of the
+    /// barely visible sliver the linear fill drew.
+    #[test]
+    fn gr_fraction_six_db_is_a_quarter() {
+        assert_close(gr_fraction(6.0), 0.25);
+    }
+
+    /// A NaN reduction reads as no reduction rather than an invalid height.
+    #[test]
+    fn gr_fraction_nan_is_zero() {
+        assert_eq!(gr_fraction(f32::NAN), 0.0);
+    }
+
+    /// More reduction never shrinks the bar, and every result stays finite and
+    /// inside 0.0..=1.0.
+    #[test]
+    fn gr_fraction_is_monotonic_and_bounded() {
+        let reductions_db = [
+            0.0, 0.5, 1.0, 3.0, 6.0, 9.0, 12.0, 18.0, 23.9, 24.0, 30.0, 60.0,
+        ];
+        let mut previous = 0.0;
+
+        for db in reductions_db {
+            let fraction = gr_fraction(db);
+            assert!(
+                fraction.is_finite(),
+                "{db} dB produced a non-finite fraction {fraction}"
+            );
+            assert!(
+                (0.0..=1.0).contains(&fraction),
+                "{db} dB produced {fraction}, outside 0.0..=1.0"
+            );
+            assert!(
+                fraction >= previous,
+                "{db} dB produced {fraction}, below the previous {previous}"
+            );
+            previous = fraction;
+        }
     }
 }

@@ -162,10 +162,6 @@ pub struct AskompShared {
     pub output_peak_left: AtomicF32,
     /// The output peak level of the right channel.
     pub output_peak_right: AtomicF32,
-    /// The positive gain reduction in linear amplitude.
-    pub positive_compression: AtomicF32,
-    /// The negative gain reduction in linear amplitude.
-    pub negative_compression: AtomicF32,
     /// The positive gain reduction in decibels.
     pub positive_compression_db: AtomicF32,
     /// The negative gain reduction in decibels.
@@ -188,8 +184,6 @@ impl AskompShared {
             params,
             output_peak_left: AtomicF32::new(0.0),
             output_peak_right: AtomicF32::new(0.0),
-            positive_compression: AtomicF32::new(0.0),
-            negative_compression: AtomicF32::new(0.0),
             positive_compression_db: AtomicF32::new(0.0),
             negative_compression_db: AtomicF32::new(0.0),
             wave_in: std::iter::repeat_with(|| AtomicF32::new(0.0))
@@ -355,8 +349,6 @@ impl Plugin for Askomp {
         let delta = self.params.delta.value();
         let mut output_peak_left = 0.0f32;
         let mut output_peak_right = 0.0f32;
-        let mut positive_compression = 0.0f64;
-        let mut negative_compression = 0.0f64;
         // The input and compressed-output peaks per half-wave, used for the
         // dB gain reduction readouts.
         let mut positive_input_peak = 0.0f64;
@@ -435,13 +427,8 @@ impl Plugin for Askomp {
                 // The waveform display shows what actually leaves the plugin.
                 let mix_out = output_mix(mix_in, compressed, delta);
 
-                // The gain reduction applied to either half-wave, as a linear
-                // amplitude delta.
-                positive_compression = positive_compression
-                    .max((mix_in.max(0.0) - compressed.max(0.0)).abs());
-                negative_compression = negative_compression
-                    .max((mix_in.min(0.0) - compressed.min(0.0)).abs());
-
+                // Track the loudest input and compressed output of each
+                // half-wave so the meters can report their ratio in dB.
                 positive_input_peak = positive_input_peak.max(mix_in.max(0.0));
                 positive_output_peak = positive_output_peak.max(compressed.max(0.0));
                 negative_input_peak = negative_input_peak.max(-mix_in.min(0.0));
@@ -502,21 +489,10 @@ impl Plugin for Askomp {
             .output_peak_right
             .store(smooth_meter(old_peak_right, output_peak_right), Ordering::Relaxed);
 
-        let old_positive = self.shared.positive_compression.load(Ordering::Relaxed);
-        let old_negative = self.shared.negative_compression.load(Ordering::Relaxed);
-        self.shared
-            .positive_compression
-            .store(smooth_meter(old_positive, positive_compression as f32), Ordering::Relaxed);
-        self.shared
-            .negative_compression
-            .store(smooth_meter(old_negative, negative_compression as f32), Ordering::Relaxed);
-
         // The original displays the absolute decibel value of the gain
         // reduction, holding the peak with a slow 0.995 release.
-        let new_positive_db =
-            gain_reduction_db(positive_input_peak, positive_output_peak);
-        let new_negative_db =
-            gain_reduction_db(negative_input_peak, negative_output_peak);
+        let new_positive_db = gain_reduction_db(positive_input_peak, positive_output_peak);
+        let new_negative_db = gain_reduction_db(negative_input_peak, negative_output_peak);
         let smooth_gr = |old: f32, new: f32| {
             if old > new {
                 (old * 0.995) + (new * 0.005)
