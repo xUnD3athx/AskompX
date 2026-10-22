@@ -267,7 +267,7 @@ impl Vst3Plugin for Askomp {
 
 impl Plugin for Askomp {
     const NAME: &'static str = "AskompX";
-    const VENDOR: &'static str = "Aqua Sounds";
+    const VENDOR: &'static str = "Ultra Noise Design";
     const URL: &'static str = "https://aqua-sounds.top";
     const EMAIL: &'static str = "und3ath@outlook.com";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
@@ -689,5 +689,10 @@ mod tests {
             halved < quartered,
             "1.0 -> 0.5 ({halved} dB) should be less than 1.0 -> 0.25 ({quartered} dB)"
         );
+    }
+
+    #[test]
+    fn vendor_is_ultra_noise_design() {
+        assert_eq!(<Askomp as Plugin>::VENDOR, "Ultra Noise Design");
     }
 }

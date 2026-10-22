@@ -449,6 +449,62 @@ impl View for GrReadout {
     }
 }
 
+/// The Ultra Noise Design wordmark. Vizia's `Image` view only handles CSS
+/// background URLs, so the logo is uploaded to the canvas as a texture on the
+/// first draw and painted into the view's bounds after that.
+struct BrandLogo {
+    image: Cell<Option<vg::ImageId>>,
+}
+
+impl BrandLogo {
+    fn new(cx: &mut Context) -> Handle<'_, Self> {
+        Self {
+            image: Cell::new(None),
+        }
+        .build(cx, |_| {})
+    }
+}
+
+impl View for BrandLogo {
+    fn element(&self) -> Option<&'static str> {
+        Some("brand-logo")
+    }
+
+    fn draw(&self, cx: &mut DrawContext, canvas: &mut Canvas) {
+        let bounds = cx.bounds();
+        if bounds.w == 0.0 || bounds.h == 0.0 {
+            return;
+        }
+
+        let image = match self.image.get() {
+            Some(image) => image,
+            None => {
+                let Ok(image) = canvas.load_image_mem(
+                    include_bytes!("../assets/und-logo.png"),
+                    vg::ImageFlags::empty(),
+                ) else {
+                    return;
+                };
+                self.image.set(Some(image));
+                image
+            }
+        };
+
+        let mut path = vg::Path::new();
+        path.rect(bounds.x, bounds.y, bounds.w, bounds.h);
+        let paint = vg::Paint::image(
+            image,
+            bounds.x + bounds.w / 2.0,
+            bounds.y + bounds.h / 2.0,
+            bounds.w,
+            bounds.h,
+            0.0,
+            1.0,
+        );
+        canvas.fill_path(&path, &paint);
+    }
+}
+
 /// Which of the two threshold lines is being dragged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DragTarget {
@@ -1336,16 +1392,6 @@ pub(crate) fn create(
         // stretch-based layout is not reliable across hosts with different
         // scale factors, so every element is placed at explicit coordinates.
         ZStack::new(cx, |cx| {
-            // The little vendor label in the top left corner of the window.
-            Label::new(cx, "Aqua Sounds")
-                .font_size(10.0)
-                .color(Color::rgba(255, 255, 255, 110))
-                .left(Pixels(8.0))
-                .top(Pixels(2.0))
-                .width(Pixels(120.0))
-                .height(Pixels(14.0))
-                .pointer_events(false);
-
             // The white rounded card on the gray window background.
             Element::new(cx)
                 .background_color(Color::rgb(255, 255, 255))
@@ -1354,6 +1400,25 @@ pub(crate) fn create(
                 .top(Pixels(5.0))
                 .width(Pixels(490.0))
                 .height(Pixels(390.0));
+
+            // The brand lockup in the card's top left corner. It is created
+            // after the card so the card does not paint over it.
+            BrandLogo::new(cx)
+                .left(Pixels(20.0))
+                .top(Pixels(9.0))
+                .width(Pixels(65.0))
+                .height(Pixels(16.0))
+                .pointer_events(false);
+
+            Label::new(cx, "Ultra Noise Design")
+                .font_size(9.0)
+                .color(Color::rgb(51, 51, 51))
+                .left(Pixels(92.0))
+                .top(Pixels(9.0))
+                .width(Pixels(88.0))
+                .height(Pixels(16.0))
+                .text_align(TextAlign::Left)
+                .pointer_events(false);
 
             // The header: an output meter pill on either side of the title.
             // Both pills sit 20px inside the card, 20px tall, vertically
@@ -2012,5 +2077,22 @@ mod tests {
 
         assert!(wide > medium, "{wide} is not above {medium}");
         assert!(medium > narrow, "{medium} is not above {narrow}");
+    }
+
+    /// The embedded wordmark must stay a valid PNG with the aspect ratio the
+    /// layout assumes.
+    #[test]
+    fn logo_asset_is_the_expected_png() {
+        let logo = image::load_from_memory(include_bytes!("../assets/und-logo.png"))
+            .expect("the embedded logo must decode");
+
+        assert_eq!((logo.width(), logo.height()), (260, 64));
+        assert!(logo.color().has_alpha());
+
+        let aspect = logo.width() as f32 / logo.height() as f32;
+        assert!(
+            (aspect - 4.066).abs() < 0.01,
+            "logo aspect ratio changed: {aspect}"
+        );
     }
 }
