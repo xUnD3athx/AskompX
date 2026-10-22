@@ -2,14 +2,14 @@
  * Askomp
  *
  * SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UnD3ath / Aqua Sounds
+ * Copyright (C) 2026 UnD3ath
  */
 
 declare name 		"Askomp";
 declare version 	"1.0";
 declare author 		"DSP: UnD3ath, Plugin: UnD3ath";
 declare license 	"GPL-3.0-only";
-declare copyright 	"Copyright (C) 2026 UnD3ath / Aqua Sounds";
+declare copyright 	"Copyright (C) 2026 UnD3ath";
 
 import("stdfaust.lib");
 

@@ -80,4 +80,4 @@ half-wave compression, and that block processing matches sample-by-sample proces
 
 ## License
 
-GPL-3.0 — see [LICENSE](LICENSE). DSP & Plugin: UnD3ath, © 2026 UnD3ath / Aqua Sounds.
+GPL-3.0 — see [LICENSE](LICENSE). DSP & Plugin: UnD3ath, © 2026 UnD3ath.

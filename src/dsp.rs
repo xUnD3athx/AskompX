@@ -2,7 +2,7 @@
  * Askomp
  *
  * SPDX-License-Identifier: GPL-3.0-only
- * Copyright (C) 2026 UnD3ath / Aqua Sounds
+ * Copyright (C) 2026 UnD3ath
  */
 
 //! A thin wrapper around the Faust-generated DSP (`src/faust_dsp.rs`,
