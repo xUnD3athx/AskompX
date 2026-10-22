@@ -219,6 +219,22 @@ fn output_mix(input_mix: f64, compressed_mix: f64, delta: bool) -> f64 {
     }
 }
 
+/// The largest gain reduction the meters display, in dB.
+const MAX_GR_DB: f32 = 60.0;
+
+/// Gain reduction in dB for one half-wave, derived from the input and
+/// compressed-output peak amplitudes of that half-wave.
+fn gain_reduction_db(input_peak: f64, output_peak: f64) -> f32 {
+    if !input_peak.is_finite() || !output_peak.is_finite() || input_peak <= 0.0 {
+        return 0.0;
+    }
+    if output_peak <= 0.0 {
+        return MAX_GR_DB;
+    }
+
+    ((20.0 * (input_peak / output_peak).log10()) as f32).clamp(0.0, MAX_GR_DB)
+}
+
 /// The `Askomp` asymmetrical compressor.
 pub struct Askomp {
     params: Arc<AskompParams>,
@@ -341,6 +357,12 @@ impl Plugin for Askomp {
         let mut output_peak_right = 0.0f32;
         let mut positive_compression = 0.0f64;
         let mut negative_compression = 0.0f64;
+        // The input and compressed-output peaks per half-wave, used for the
+        // dB gain reduction readouts.
+        let mut positive_input_peak = 0.0f64;
+        let mut positive_output_peak = 0.0f64;
+        let mut negative_input_peak = 0.0f64;
+        let mut negative_output_peak = 0.0f64;
 
         // The signed peak of the stereo mix over this block, used by the
         // waveform display.
@@ -420,6 +442,11 @@ impl Plugin for Askomp {
                 negative_compression = negative_compression
                     .max((mix_in.min(0.0) - compressed.min(0.0)).abs());
 
+                positive_input_peak = positive_input_peak.max(mix_in.max(0.0));
+                positive_output_peak = positive_output_peak.max(compressed.max(0.0));
+                negative_input_peak = negative_input_peak.max(-mix_in.min(0.0));
+                negative_output_peak = negative_output_peak.max(-compressed.min(0.0));
+
                 // The original only looks at the positive half for these
                 // meters.
                 output_peak_left = output_peak_left.max(out_l);
@@ -487,9 +514,9 @@ impl Plugin for Askomp {
         // The original displays the absolute decibel value of the gain
         // reduction, holding the peak with a slow 0.995 release.
         let new_positive_db =
-            dsp::linear_to_db(1.0 - positive_compression).abs() as f32;
+            gain_reduction_db(positive_input_peak, positive_output_peak);
         let new_negative_db =
-            dsp::linear_to_db(1.0 - negative_compression).abs() as f32;
+            gain_reduction_db(negative_input_peak, negative_output_peak);
         let smooth_gr = |old: f32, new: f32| {
             if old > new {
                 (old * 0.995) + (new * 0.005)
@@ -533,6 +560,17 @@ mod tests {
         assert!(
             difference < EPSILON,
             "expected {expected}, got {actual} (difference {difference})"
+        );
+    }
+
+    /// Tolerance for gain-reduction values, which are `f32` and involve `log10`.
+    const DB_EPSILON: f32 = 1e-3;
+
+    fn assert_db_close(actual: f32, expected: f32) {
+        let difference = (actual - expected).abs();
+        assert!(
+            difference < DB_EPSILON,
+            "expected {expected} dB, got {actual} dB (difference {difference})"
         );
     }
 
@@ -593,5 +631,101 @@ mod tests {
         assert_eq!(input_mix, 0.5);
         assert_eq!(compressed, 0.25);
         assert_eq!(output_mix(input_mix, compressed, true), -0.25);
+    }
+
+    #[test]
+    fn gain_reduction_of_unity_input_to_half_output_is_six_db() {
+        // 20 * log10(1.0 / 0.5) = 20 * log10(2) ~= 6.0206 dB.
+        assert_db_close(gain_reduction_db(1.0, 0.5), 6.0206);
+    }
+
+    #[test]
+    fn gain_reduction_of_half_input_to_quarter_output_is_six_db() {
+        // Same ratio as 1.0 -> 0.5, so the same 20 * log10(2) dB.
+        assert_db_close(gain_reduction_db(0.5, 0.25), 6.0206);
+    }
+
+    #[test]
+    fn gain_reduction_of_silent_output_is_clamped_to_max() {
+        let reduction = gain_reduction_db(1.0, 0.0);
+
+        assert_eq!(reduction, MAX_GR_DB);
+        assert_eq!(reduction, 60.0);
+    }
+
+    #[test]
+    fn gain_reduction_of_unchanged_level_is_zero() {
+        assert_eq!(gain_reduction_db(1.0, 1.0), 0.0);
+    }
+
+    #[test]
+    fn gain_reduction_of_louder_output_is_zero() {
+        // The output is louder than the input, so there is nothing to reduce.
+        assert_eq!(gain_reduction_db(0.5, 1.0), 0.0);
+    }
+
+    #[test]
+    fn gain_reduction_of_silence_is_zero() {
+        assert_eq!(gain_reduction_db(0.0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn gain_reduction_of_hot_compressed_input_is_clamped_to_max() {
+        // 2.0 / 0.0019 is ~1052.6 (about 60.44 dB), just past the display limit.
+        // The old `linear_to_db(1.0 - compression).abs()` path reported thousands
+        // of dB here because the linear difference went negative.
+        let reduction = gain_reduction_db(2.0, 0.0019);
+
+        assert_eq!(reduction, MAX_GR_DB);
+        assert_eq!(reduction, 60.0);
+    }
+
+    #[test]
+    fn gain_reduction_of_non_finite_values_is_zero() {
+        assert_eq!(gain_reduction_db(f64::NAN, 0.5), 0.0);
+        assert_eq!(gain_reduction_db(1.0, f64::NAN), 0.0);
+        assert_eq!(gain_reduction_db(f64::INFINITY, 0.5), 0.0);
+    }
+
+    #[test]
+    fn gain_reduction_stays_within_display_range() {
+        let cases = [
+            (1.0, 1.0),
+            (1.0, 0.5),
+            (1.0, 0.001),
+            (1.0, 0.0),
+            (0.5, 0.25),
+            (0.75, 0.9),
+            (2.0, 0.0019),
+            (1e-9, 1e-12),
+            (0.1, 0.0),
+            (0.0, 0.0),
+        ];
+
+        for (input_peak, output_peak) in cases {
+            let reduction = gain_reduction_db(input_peak, output_peak);
+
+            assert!(
+                reduction.is_finite(),
+                "gain reduction must be finite for {input_peak} -> {output_peak}, got {reduction}"
+            );
+            assert!(
+                (0.0..=MAX_GR_DB).contains(&reduction),
+                "gain reduction {reduction} dB out of range for {input_peak} -> {output_peak}"
+            );
+        }
+    }
+
+    #[test]
+    fn gain_reduction_grows_with_more_reduction() {
+        // Halving the output halves the amplitude once more, so 1.0 -> 0.25 must
+        // report more reduction than 1.0 -> 0.5.
+        let halved = gain_reduction_db(1.0, 0.5);
+        let quartered = gain_reduction_db(1.0, 0.25);
+
+        assert!(
+            halved < quartered,
+            "1.0 -> 0.5 ({halved} dB) should be less than 1.0 -> 0.25 ({quartered} dB)"
+        );
     }
 }
