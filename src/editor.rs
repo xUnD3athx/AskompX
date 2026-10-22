@@ -822,6 +822,29 @@ enum KnobKind {
     SidechainHP,
 }
 
+/// The vertical drag distance that sweeps a knob across its whole range.
+const KNOB_DRAG_FULL_RANGE_PX: f32 = 200.0;
+
+/// How many plain value units one pixel of vertical dragging adds for a
+/// parameter spanning `min..=max`.
+fn knob_drag_units_per_pixel(min: f32, max: f32) -> f32 {
+    (max - min) / KNOB_DRAG_FULL_RANGE_PX
+}
+
+impl KnobKind {
+    /// The parameter's plain value range.
+    fn range(self) -> (f32, f32) {
+        match self {
+            KnobKind::Attack => (0.0, 50.0),
+            KnobKind::Release => (20.0, 200.0),
+            KnobKind::Ratio => (1.0, 20.0),
+            KnobKind::Knee => (0.0, 24.0),
+            KnobKind::StereoLink => (0.0, 100.0),
+            KnobKind::SidechainHP => (20.0, 500.0),
+        }
+    }
+}
+
 /// A rotary knob, ported from the original's ellipse-based knobs. Drag
 /// vertically to change the value, double click to reset it to the default.
 struct KnobView {
@@ -849,57 +872,22 @@ impl KnobView {
         params: &'a Arc<AskompParams>,
         kind: KnobKind,
     ) -> Handle<'a, Self> {
-        let (ptr, min, max, drag_units_per_pixel, arc_width) = match kind {
-            KnobKind::Attack => (
-                params.attack.as_ptr(),
-                0.0,
-                50.0,
-                0.1,
-                3.0,
-            ),
-            KnobKind::Release => (
-                params.release.as_ptr(),
-                20.0,
-                200.0,
-                0.5,
-                3.0,
-            ),
-            KnobKind::Ratio => (
-                params.ratio.as_ptr(),
-                1.0,
-                20.0,
-                0.1,
-                5.0,
-            ),
-            KnobKind::Knee => (
-                params.knee.as_ptr(),
-                0.0,
-                24.0,
-                0.1,
-                3.0,
-            ),
-            KnobKind::StereoLink => (
-                params.stereo_link.as_ptr(),
-                0.0,
-                100.0,
-                0.5,
-                3.0,
-            ),
-            KnobKind::SidechainHP => (
-                params.sidechain_hp.as_ptr(),
-                20.0,
-                500.0,
-                2.0,
-                3.0,
-            ),
+        let (ptr, arc_width) = match kind {
+            KnobKind::Attack => (params.attack.as_ptr(), 3.0),
+            KnobKind::Release => (params.release.as_ptr(), 3.0),
+            KnobKind::Ratio => (params.ratio.as_ptr(), 5.0),
+            KnobKind::Knee => (params.knee.as_ptr(), 3.0),
+            KnobKind::StereoLink => (params.stereo_link.as_ptr(), 3.0),
+            KnobKind::SidechainHP => (params.sidechain_hp.as_ptr(), 3.0),
         };
+        let (min, max) = kind.range();
 
         Self {
             kind,
             ptr,
             min,
             max,
-            drag_units_per_pixel,
+            drag_units_per_pixel: knob_drag_units_per_pixel(min, max),
             arc_width,
             hover_scale: Cell::new(0.0),
             dragging: false,
@@ -1927,5 +1915,116 @@ mod tests {
             );
             previous = fraction;
         }
+    }
+
+    /// Every knob the editor builds, so the drag-sensitivity rules can be
+    /// checked across the whole set instead of one knob at a time.
+    const ALL_KNOB_KINDS: [KnobKind; 6] = [
+        KnobKind::Attack,
+        KnobKind::Release,
+        KnobKind::Ratio,
+        KnobKind::Knee,
+        KnobKind::StereoLink,
+        KnobKind::SidechainHP,
+    ];
+
+    /// The tolerance used for units-per-pixel comparisons.
+    const DRAG_EPSILON: f32 = 1e-6;
+
+    /// The tolerance used for the full-range pixel sweep.
+    const SWEEP_EPSILON: f32 = 1e-3;
+
+    /// Asserts that `actual` matches `expected` within `epsilon`.
+    fn assert_within(actual: f32, expected: f32, epsilon: f32) {
+        assert!(
+            (actual - expected).abs() <= epsilon,
+            "expected {expected} +/- {epsilon}, got {actual}"
+        );
+    }
+
+    /// The sensitivity comes from the range width, so each knob gets its own
+    /// units per pixel instead of the old hand-picked constants.
+    #[test]
+    fn knob_drag_units_per_pixel_matches_each_parameter_range() {
+        let expectations = [
+            (KnobKind::Attack, 0.25),
+            (KnobKind::Release, 0.9),
+            (KnobKind::Ratio, 0.095),
+            (KnobKind::Knee, 0.12),
+            (KnobKind::StereoLink, 0.5),
+            (KnobKind::SidechainHP, 2.4),
+        ];
+
+        for (kind, expected) in expectations {
+            let (min, max) = kind.range();
+            let units = knob_drag_units_per_pixel(min, max);
+            assert_within(units, expected, DRAG_EPSILON);
+        }
+    }
+
+    /// The point of the change: whatever the parameter range, the same
+    /// vertical distance sweeps the knob from end to end.
+    #[test]
+    fn every_knob_sweeps_its_full_range_in_two_hundred_pixels() {
+        for kind in ALL_KNOB_KINDS {
+            let (min, max) = kind.range();
+            let units = knob_drag_units_per_pixel(min, max);
+            let pixels = (max - min) / units;
+
+            assert!(
+                pixels.is_finite(),
+                "{kind:?} needs a non-finite {pixels} px for its full range"
+            );
+            assert_within(pixels, KNOB_DRAG_FULL_RANGE_PX, SWEEP_EPSILON);
+        }
+    }
+
+    /// The ranges are the ones the DSP parameters advertise.
+    #[test]
+    fn knob_kind_range_reports_documented_parameter_ranges() {
+        assert_eq!(KnobKind::Attack.range(), (0.0, 50.0));
+        assert_eq!(KnobKind::Release.range(), (20.0, 200.0));
+        assert_eq!(KnobKind::Ratio.range(), (1.0, 20.0));
+        assert_eq!(KnobKind::Knee.range(), (0.0, 24.0));
+        assert_eq!(KnobKind::StereoLink.range(), (0.0, 100.0));
+        assert_eq!(KnobKind::SidechainHP.range(), (20.0, 500.0));
+    }
+
+    /// Dragging must move the value for every knob: no zero or NaN sensitivity
+    /// may reach the drag handler.
+    #[test]
+    fn knob_drag_units_per_pixel_is_finite_and_positive_for_every_knob() {
+        for kind in ALL_KNOB_KINDS {
+            let (min, max) = kind.range();
+            let units = knob_drag_units_per_pixel(min, max);
+
+            assert!(
+                units.is_finite(),
+                "{kind:?} produced a non-finite {units} units per pixel"
+            );
+            assert!(units > 0.0, "{kind:?} produced {units} units per pixel");
+        }
+    }
+
+    /// A parameter whose min equals its max cannot move, so it maps to zero
+    /// units per pixel without producing NaN.
+    #[test]
+    fn knob_drag_units_per_pixel_of_degenerate_range_is_zero_and_finite() {
+        let units = knob_drag_units_per_pixel(42.0, 42.0);
+
+        assert_eq!(units, 0.0);
+        assert!(units.is_finite(), "degenerate range produced {units}");
+    }
+
+    /// Sensitivity scales with the width of the range, which is what keeps the
+    /// pixel distance constant across knobs.
+    #[test]
+    fn knob_drag_units_per_pixel_grows_with_range_width() {
+        let wide = knob_drag_units_per_pixel(0.0, 100.0);
+        let medium = knob_drag_units_per_pixel(0.0, 50.0);
+        let narrow = knob_drag_units_per_pixel(0.0, 10.0);
+
+        assert!(wide > medium, "{wide} is not above {medium}");
+        assert!(medium > narrow, "{medium} is not above {narrow}");
     }
 }
