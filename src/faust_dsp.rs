@@ -6,7 +6,7 @@ pub struct ParamIndex(pub i32);
 /* ------------------------------------------------------------
 author: "DSP: UnD3ath, Plugin: UnD3ath"
 copyright: "Copyright (C) 2026 UnD3ath / Aqua Sounds"
-license: "GPL-2.0"
+license: "GPL-3.0-only"
 name: "Askomp"
 version: "1.0"
 Code generated with Faust 2.85.5 (https://faust.grame.fr)

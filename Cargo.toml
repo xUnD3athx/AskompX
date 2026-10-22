@@ -2,7 +2,7 @@
 name = "askompx"
 version = "1.0.0"
 edition = "2021"
-license = "GPL-2.0"
+license = "GPL-3.0-only"
 authors = ["UnD3ath <und3ath@outlook.com>"]
 description = "AskompX - an asymmetrical compressor"
 repository = "https://github.com/UnD3ath/Askomp"
